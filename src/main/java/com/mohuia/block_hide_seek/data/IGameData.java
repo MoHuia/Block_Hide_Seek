@@ -14,6 +14,12 @@ public interface IGameData {
     BlockState getDisguise();
     //设置伪装
     void setDisguise(@Nullable BlockState state);
+
+    // --- 新增 ---
+    int getHitCount(); // 获取被打次数
+    void setHitCount(int count); // 设置被打次数
+    void incrementHitCount(); // 增加1次被打
+
     //把另一个IGameData的数据完全复制过来，因为玩家重生时原来的标签会被去掉，把旧的信息抄到新的上
     void copyFrom(IGameData other);
 }

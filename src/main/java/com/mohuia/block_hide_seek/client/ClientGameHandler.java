@@ -12,12 +12,6 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 @OnlyIn(Dist.CLIENT)
 public class ClientGameHandler {
 
-    /**
-     * 处理从服务端发来的同步数据包
-     * @param entityId 变身的玩家ID
-     * @param isSeeker 是否是抓捕者
-     * @param disguise 变身的方块
-     */
     public static void handleSync(int entityId, boolean isSeeker, BlockState disguise) {
         // 获取客户端世界
         if (Minecraft.getInstance().level == null) return;

@@ -15,10 +15,14 @@ import org.jetbrains.annotations.Nullable;
 public class GameDataProvider implements ICapabilitySerializable<CompoundTag> {
 
     public static final Capability<IGameData> CAP = CapabilityManager.get(new CapabilityToken<>(){});
-
+    // 实际的数据存储对象（真正的「数据背包」，存放具体数据）
     private final GameDataImp backend = new GameDataImp();
+    // 延迟可选对象：提供安全的数据访问入口
     private final LazyOptional<IGameData> optional = LazyOptional.of(() -> backend);
 
+    // 这个方法是 ICapabilitySerializable 接口的实现方法，
+    // 核心作用是「给外部代码提供数据访问入口」，
+    // 相当于「检查外部请求的是不是我们的『数据背包』，如果是就打开安全门，不是就返回空」。
     @Override
     public <T> @NotNull LazyOptional<T> getCapability(@NotNull Capability<T> cap, @Nullable Direction side) {
         return cap == CAP ? optional.cast() : LazyOptional.empty();
@@ -28,6 +32,7 @@ public class GameDataProvider implements ICapabilitySerializable<CompoundTag> {
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
         tag.putBoolean("isSeeker", backend.isSeeker());
+        tag.putInt("hitCount", backend.getHitCount());
         if (backend.getDisguise() != null) {
             tag.put("block", NbtUtils.writeBlockState(backend.getDisguise()));
         }
@@ -43,6 +48,9 @@ public class GameDataProvider implements ICapabilitySerializable<CompoundTag> {
             backend.setDisguise(NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), nbt.getCompound("block")));
         } else {
             backend.setDisguise(null);
+        }
+        if (nbt.contains("hitCount")) {
+            backend.setHitCount(nbt.getInt("hitCount"));
         }
     }
 

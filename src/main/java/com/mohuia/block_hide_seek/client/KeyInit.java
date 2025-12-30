@@ -10,7 +10,7 @@ public class KeyInit {
             "key.block_hide_seek.config",
             KeyConflictContext.IN_GAME,
             InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_P, // 默认 P 键
+            GLFW.GLFW_KEY_H, // 默认 H 键
             "key.category.block_hide_seek"
     );
 }

@@ -11,6 +11,7 @@ public class GameDataImp implements IGameData {
     // 这叫"封装"，防止别人乱改数据导致出错。
     private boolean isSeeker = false; // 默认不是抓捕者
     private BlockState disguise = null; // 默认没有伪装（null）
+    private int hitCount = 0;
 
     // @Override: 告诉 Java 编译器，下面这个方法是接口里规定好的，我正在实现它。
     // 如果你拼写错了方法名，编译器会报错提醒你。
@@ -34,11 +35,27 @@ public class GameDataImp implements IGameData {
         this.disguise = state;
     }
 
+    @Override
+    public int getHitCount() {
+        return this.hitCount;
+    }
+
+    @Override
+    public void setHitCount(int count) {
+        this.hitCount = count;
+    }
+
+    @Override
+    public void incrementHitCount() {
+        this.hitCount++;
+    }
+
     // 实现复制逻辑
     @Override
     public void copyFrom(IGameData other) {
         // 把 other 里的数据拿出来，存到 this (自己) 里面
         this.isSeeker = other.isSeeker();
         this.disguise = other.getDisguise();
+        this.hitCount = other.getHitCount();
     }
 }

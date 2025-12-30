@@ -18,12 +18,10 @@ public class PlayerMixin {
     public void onGetDimensions(Pose pose, CallbackInfoReturnable<EntityDimensions> cir) {
         // (Player) (Object) this 是获取当前玩家实体的固定写法
         Player self = (Player) (Object) this;
-
         // 获取 Capability
         self.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
             // 如果不是抓捕者 且 有伪装
             if (!cap.isSeeker() && cap.getDisguise() != null) {
-                // 【关键修改】
                 // 宽度 0.7F (原版方块是1.0，留出0.3的空隙，防卡墙)
                 // 高度 0.8F (原版方块是1.0，留出0.2的空隙，方便钻洞)
                 cir.setReturnValue(EntityDimensions.fixed(0.7F, 0.8F));

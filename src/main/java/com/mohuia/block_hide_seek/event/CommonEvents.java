@@ -2,6 +2,7 @@ package com.mohuia.block_hide_seek.event;
 
 import com.mohuia.block_hide_seek.BlockHideSeek;
 import com.mohuia.block_hide_seek.data.GameDataProvider;
+import com.mohuia.block_hide_seek.game.GameLoopManager;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -44,6 +45,30 @@ public class CommonEvents {
                 newCap.copyFrom(oldCap);
             });
         });
+    }
+
+    // 1. 监听伤害事件，判断是否为 抓捕者打躲藏者
+    @SubscribeEvent
+    public static void onLivingAttack(net.minecraftforge.event.entity.living.LivingDamageEvent event) {
+        if (event.getEntity().level().isClientSide) return;
+
+        // 只有当受害者是玩家，且攻击源是玩家时
+        if (event.getEntity() instanceof ServerPlayer victim && event.getSource().getEntity() instanceof ServerPlayer attacker) {
+            GameLoopManager.onPlayerAttack(attacker, victim);
+        }
+    }
+
+    // 2. 监听服务器 Tick，驱动游戏倒计时
+    @SubscribeEvent
+    public static void onServerTick(net.minecraftforge.event.TickEvent.ServerTickEvent event) {
+        if (event.phase == net.minecraftforge.event.TickEvent.Phase.END) {
+            // 获取主世界来运行逻辑 (这里简化处理，假设游戏只在 Overworld)
+            net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer().getAllLevels().forEach(level -> {
+                if (level.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
+                    GameLoopManager.tick(level);
+                }
+            });
+        }
     }
 
     // ==========================================

@@ -3,6 +3,7 @@ package com.mohuia.block_hide_seek.client;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
@@ -16,19 +17,31 @@ import java.util.List;
 public class ConfigScreen extends Screen {
     private final List<BlockState> whitelist;
 
-    // 窗口尺寸
-    private static final int GUI_WIDTH = 196;
-    private static final int GUI_HEIGHT = 230;
+    // --- 1. 布局常量 ---
+    private static final int GUI_WIDTH = 242;
+    private static final int GUI_HEIGHT = 236; // 稍微增高一点点，给中间留空隙
 
-    // 布局常量
+    // 列表配置 (12列 x 4行 = 48个可见)
+    private static final int LIST_COLS = 12;
+    private static final int VISIBLE_ROWS = 4; // 改回4行，保证垂直空间宽裕
+    private static final int ROW_HEIGHT = 18;
+
+    // 列表区域高度
+    private static final int LIST_HEIGHT = VISIBLE_ROWS * ROW_HEIGHT;
+
+    // 布局坐标变量
     private int guiLeft;
     private int guiTop;
 
-    // 滚动相关变量
-    private float scrollOffs; // 0.0f ~ 1.0f (0% 到 100%)
+    private int listAreaX;
+    private int listAreaY;
+
+    private int invAreaX;
+    private int invAreaY;
+
+    // 滚动变量
+    private float scrollOffs;
     private boolean isScrolling;
-    private static final int VISIBLE_ROWS = 4; // 可见行数
-    private static final int ROW_HEIGHT = 18;  // 每行高度
 
     public ConfigScreen(List<BlockState> whitelist) {
         super(Component.literal("配置躲藏方块"));
@@ -40,21 +53,37 @@ public class ConfigScreen extends Screen {
         super.init();
         this.guiLeft = (this.width - GUI_WIDTH) / 2;
         this.guiTop = (this.height - GUI_HEIGHT) / 2;
+
+        // --- 坐标计算区域 ---
+
+        // 1. 白名单列表：顶部 Y=30
+        this.listAreaX = this.guiLeft + 12; // 左边距 12
+        this.listAreaY = this.guiTop + 30;
+
+        // 2. 游戏规则按钮：位于列表下方 Y=106
+        int btnWidth = 120;
+        int btnX = this.guiLeft + (GUI_WIDTH - btnWidth) / 2; // 居中
+        int btnY = this.listAreaY + LIST_HEIGHT + 6; // 列表底部 + 6像素间隔
+
+        this.addRenderableWidget(new DarkFlatButton(btnX, btnY, btnWidth, 18, Component.literal("⚙ 游戏规则设置"), button -> {
+            Minecraft.getInstance().setScreen(new GameSettingsScreen(this));
+        }));
+
+        // 3. 玩家背包：位于最下方
+        // 背包标准宽度 162 (9 * 18)，需要居中
+        this.invAreaX = this.guiLeft + (GUI_WIDTH - 162) / 2;
+
+        // 计算背包 Y 坐标
+        // 按钮底部(btnY + 18) + 间隔(16) + 文字预留
+        this.invAreaY = btnY + 18 + 18;
     }
 
-    // --- 核心逻辑：滚动与输入 ---
+    // --- 核心逻辑 ---
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double delta) { // 1.20.1 改为 delta (第三个参数)
-        // 只有在白名单区域才允许滚动
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
         if (!needsScrollBars()) return false;
-
-        int listHeight = VISIBLE_ROWS * ROW_HEIGHT;
-        // 如果内容很多，每一格滚轮滚动的比例
         float step = 1.0f / ((float) (this.getTotalRows() - VISIBLE_ROWS) + 0.5f);
-
-        // delta > 0 是向上滚，offset 变小；delta < 0 是向下滚
-        // 注意：不同版本 delta 正负方向可能不同，通常向上是正
         this.scrollOffs = Mth.clamp(this.scrollOffs - (float)delta * step, 0.0f, 1.0f);
         return true;
     }
@@ -62,11 +91,9 @@ public class ConfigScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
         if (this.isScrolling) {
-            int scrollBarTop = guiTop + 40;
-            int scrollBarBottom = scrollBarTop + VISIBLE_ROWS * ROW_HEIGHT;
+            int scrollBarTop = listAreaY;
+            int scrollBarBottom = listAreaY + LIST_HEIGHT;
             float trackHeight = (float)(scrollBarBottom - scrollBarTop);
-
-            // 计算鼠标移动的比例
             this.scrollOffs = ((float)mouseY - (float)scrollBarTop - 7.5f) / (trackHeight - 15.0f);
             this.scrollOffs = Mth.clamp(this.scrollOffs, 0.0f, 1.0f);
             return true;
@@ -76,31 +103,28 @@ public class ConfigScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // 1. 处理滚动条点击
-        int scrollBarX = guiLeft + 17 + 9 * 18 + 4;
-        int scrollBarTop = guiTop + 40;
-        int scrollBarHeight = VISIBLE_ROWS * ROW_HEIGHT;
+        int listWidth = LIST_COLS * 18;
 
+        // 1. 滚动条点击
+        int scrollBarX = listAreaX + listWidth + 6;
         if (mouseX >= scrollBarX && mouseX <= scrollBarX + 6 &&
-                mouseY >= scrollBarTop && mouseY <= scrollBarTop + scrollBarHeight) {
+                mouseY >= listAreaY && mouseY <= listAreaY + LIST_HEIGHT) {
             this.isScrolling = needsScrollBars();
             return true;
         }
 
-        // 2. 处理白名单区域点击 (考虑滚动偏移)
-        int listX = guiLeft + 17;
-        int listY = guiTop + 40;
+        // 2. 白名单列表点击
+        if (mouseX >= listAreaX && mouseX < listAreaX + listWidth &&
+                mouseY >= listAreaY && mouseY < listAreaY + LIST_HEIGHT) {
 
-        // 检查是否点击在可视区域内
-        if (mouseX >= listX && mouseX < listX + 9 * 18 && mouseY >= listY && mouseY < listY + VISIBLE_ROWS * 18) {
             int scrollPixel = getScrollPixels();
-            // 还原鼠标点击对应的真实Y坐标
-            double relativeY = mouseY - listY + scrollPixel;
+            double relativeY = mouseY - listAreaY + scrollPixel;
 
-            int col = (int) (mouseX - listX) / 18;
+            int col = (int) (mouseX - listAreaX) / 18;
             int row = (int) (relativeY / 18);
 
-            int index = row * 9 + col;
+            int index = row * LIST_COLS + col;
+
             if (index >= 0 && index < whitelist.size()) {
                 PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SToggleWhitelist(whitelist.get(index)));
                 playClickSound();
@@ -108,27 +132,24 @@ public class ConfigScreen extends Screen {
             }
         }
 
-        // 3. 处理背包点击 (这部分不需要滚动)
+        // 3. 背包点击
         Player player = Minecraft.getInstance().player;
         if (player != null) {
-            int invStartX = guiLeft + 17;
-            int invStartY = guiTop + 140;
-
             // 主背包
             for (int i = 9; i < 36; i++) {
                 int col = (i % 9);
                 int row = (i / 9) - 1;
-                int x = invStartX + col * 18;
-                int y = invStartY + row * 18;
+                int x = invAreaX + col * 18;
+                int y = invAreaY + row * 18;
                 if (isHovering(x, y, mouseX, mouseY)) {
                     tryAddBlock(player.getInventory().getItem(i));
                     return true;
                 }
             }
-            // 快捷栏
-            int hotbarY = invStartY + 58;
+            // 快捷栏 (与主背包有4像素间隔)
+            int hotbarY = invAreaY + 3 * 18 + 4;
             for (int i = 0; i < 9; i++) {
-                int x = invStartX + i * 18;
+                int x = invAreaX + i * 18;
                 if (isHovering(x, hotbarY, mouseX, mouseY)) {
                     tryAddBlock(player.getInventory().getItem(i));
                     return true;
@@ -151,125 +172,115 @@ public class ConfigScreen extends Screen {
     public void render(GuiGraphics gfx, int mouseX, int mouseY, float partialTick) {
         this.renderBackground(gfx);
 
-        // 1. 绘制主窗口背景
+        // 1. 窗口背景
         gfx.fill(guiLeft - 2, guiTop - 2, guiLeft + GUI_WIDTH + 2, guiTop + GUI_HEIGHT + 2, 0xFF000000);
         gfx.fill(guiLeft, guiTop, guiLeft + GUI_WIDTH, guiTop + GUI_HEIGHT, 0xFF303030);
 
         // 2. 标题
-        gfx.drawCenteredString(this.font, "躲猫猫 - 方块白名单配置", this.width / 2, guiTop + 8, 0xFFFFFF);
-        gfx.drawString(this.font, "已添加列表 (可滚动):", guiLeft + 10, guiTop + 25, 0xAAAAAA, false);
-        gfx.drawString(this.font, "你的背包 (点击添加):", guiLeft + 10, guiTop + 125, 0xAAAAAA, false);
+        gfx.drawCenteredString(this.font, "躲猫猫 - 方块配置", this.width / 2, guiTop + 8, 0xFFFFFF);
 
-        // ==========================================
-        //         区域 A: 白名单 (带滚动)
-        // ==========================================
-        int listX = guiLeft + 17;
-        int listY = guiTop + 40;
-        int listWidth = 9 * 18;
-        int listHeight = VISIBLE_ROWS * 18;
+        // 3. 文字标签
+        gfx.drawString(this.font, "已添加 (" + whitelist.size() + ") - 可滚动:", listAreaX, guiTop + 20, 0xA0A0A0, false);
+        gfx.drawString(this.font, "你的背包 (点击添加):", invAreaX, invAreaY - 12, 0xA0A0A0, false);
 
-        // 2.1 绘制列表背景框 (黑底)
-        gfx.fill(listX - 1, listY - 1, listX + listWidth + 1, listY + listHeight + 1, 0xFF101010);
+        // 4. 渲染列表
+        renderWhitelistArea(gfx, mouseX, mouseY);
 
-        // 2.2 开启剪裁 (Scissor) - 只在列表框内渲染
-        // 注意：enableScissor 使用的是窗口坐标，需要一定的换算，但在 1.20+ GuiGraphics 封装较好
-        gfx.enableScissor(listX, listY, listX + listWidth, listY + listHeight);
+        // 5. 渲染背包
+        renderInventory(gfx, mouseX, mouseY);
+
+        // 6. 按钮 (super.render)
+        super.render(gfx, mouseX, mouseY, partialTick);
+
+        // 7. Tooltips (放在最上层)
+        renderListTooltips(gfx, mouseX, mouseY);
+    }
+
+    private void renderWhitelistArea(GuiGraphics gfx, int mouseX, int mouseY) {
+        int listWidth = LIST_COLS * 18;
+
+        // 背景槽
+        gfx.fill(listAreaX - 1, listAreaY - 1, listAreaX + listWidth + 1, listAreaY + LIST_HEIGHT + 1, 0xFF151515);
+
+        // 剪裁
+        gfx.enableScissor(listAreaX, listAreaY, listAreaX + listWidth, listAreaY + LIST_HEIGHT);
 
         int scrollPixel = getScrollPixels();
         int startRow = scrollPixel / 18;
-        // 多画一行以防滚动一半的情况
-        int endRow = (scrollPixel + listHeight) / 18 + 1;
+        int endRow = (scrollPixel + LIST_HEIGHT) / 18 + 1;
 
         for (int i = 0; i < whitelist.size(); i++) {
-            int col = i % 9;
-            int row = i / 9;
+            int col = i % LIST_COLS;
+            int row = i / LIST_COLS;
 
-            // 性能优化：只绘制视野内的
             if (row < startRow || row > endRow) continue;
 
-            int x = listX + col * 18;
-            int y = listY + row * 18 - scrollPixel; // 减去滚动偏移
+            int x = listAreaX + col * 18;
+            int y = listAreaY + row * 18 - scrollPixel;
 
             renderSlotBox(gfx, x, y);
-
             ItemStack stack = new ItemStack(whitelist.get(i).getBlock());
             gfx.renderItem(stack, x + 1, y + 1);
 
-            // 悬停高亮 (仅当鼠标也在可视范围内时)
-            if (mouseX >= listX && mouseX < listX + listWidth &&
-                    mouseY >= listY && mouseY < listY + listHeight &&
-                    isHovering(x, y, mouseX, mouseY)) {
+            if (isHovering(x, y, mouseX, mouseY)) {
                 gfx.fill(x, y, x + 18, y + 18, 0x80FFFFFF);
             }
         }
-
-        // 2.3 关闭剪裁
         gfx.disableScissor();
 
-        // 2.4 绘制滚动条
-        drawScrollBar(gfx, listX + listWidth + 4, listY, listHeight);
-
-        // ==========================================
-        //         区域 B: 玩家背包 (固定)
-        // ==========================================
-        renderInventory(gfx, mouseX, mouseY);
-
-        // ==========================================
-        //         最后绘制 Tooltips (防止被剪裁)
-        // ==========================================
-        renderListTooltips(gfx, mouseX, mouseY, listX, listY, listWidth, listHeight, scrollPixel);
-        super.render(gfx, mouseX, mouseY, partialTick);
+        // 滚动条
+        drawScrollBar(gfx, listAreaX + listWidth + 6, listAreaY, LIST_HEIGHT);
     }
 
     private void renderInventory(GuiGraphics gfx, int mouseX, int mouseY) {
         Player player = Minecraft.getInstance().player;
         if (player == null) return;
 
-        int invStartX = guiLeft + 17;
-        int invStartY = guiTop + 140;
-
-        // 主背包
+        // 主背包 (3行)
         for (int i = 9; i < 36; i++) {
             int col = (i % 9);
             int row = (i / 9) - 1;
-            int x = invStartX + col * 18;
-            int y = invStartY + row * 18;
+            int x = invAreaX + col * 18;
+            int y = invAreaY + row * 18;
+            renderInvSlot(gfx, x, y, player.getInventory().getItem(i), mouseX, mouseY);
+        }
 
-            renderSlotBox(gfx, x, y);
-            ItemStack stack = player.getInventory().getItem(i);
-            if (!stack.isEmpty()) {
-                gfx.renderItem(stack, x + 1, y + 1);
-                if (stack.getItem() instanceof BlockItem && isHovering(x, y, mouseX, mouseY)) {
-                    gfx.fill(x, y, x + 18, y + 18, 0x80FFFFFF);
-                    gfx.renderTooltip(this.font, stack, mouseX, mouseY);
-                }
+        // 快捷栏 (与主背包分开 4px)
+        int hotbarY = invAreaY + 3 * 18 + 4;
+        for (int i = 0; i < 9; i++) {
+            int x = invAreaX + i * 18;
+            renderInvSlot(gfx, x, hotbarY, player.getInventory().getItem(i), mouseX, mouseY);
+        }
+    }
+
+    private void renderInvSlot(GuiGraphics gfx, int x, int y, ItemStack stack, int mouseX, int mouseY) {
+        renderSlotBox(gfx, x, y);
+
+        // 已添加标记 (绿色)
+        if (!stack.isEmpty() && stack.getItem() instanceof BlockItem blockItem) {
+            if (whitelist.contains(blockItem.getBlock().defaultBlockState())) {
+                gfx.fill(x + 1, y + 1, x + 17, y + 17, 0x6000AA00); // 稍微加深一点绿色
             }
         }
-        // 快捷栏
-        int hotbarY = invStartY + 58;
-        for (int i = 0; i < 9; i++) {
-            int x = invStartX + i * 18;
-            renderSlotBox(gfx, x, hotbarY);
-            ItemStack stack = player.getInventory().getItem(i);
-            if (!stack.isEmpty()) {
-                gfx.renderItem(stack, x + 1, hotbarY + 1);
-                if (stack.getItem() instanceof BlockItem && isHovering(x, hotbarY, mouseX, mouseY)) {
-                    gfx.fill(x, hotbarY, x + 18, hotbarY + 18, 0x80FFFFFF);
-                    gfx.renderTooltip(this.font, stack, mouseX, mouseY);
-                }
+
+        if (!stack.isEmpty()) {
+            gfx.renderItem(stack, x + 1, y + 1);
+            if (stack.getItem() instanceof BlockItem && isHovering(x, y, mouseX, mouseY)) {
+                gfx.fill(x, y, x + 18, y + 18, 0x80FFFFFF);
+                gfx.renderTooltip(this.font, stack, mouseX, mouseY);
             }
         }
     }
 
-    // 单独分离出 Tooltip 渲染，保证它在所有图层最上面，且不被 enableScissor 切掉
-    private void renderListTooltips(GuiGraphics gfx, int mouseX, int mouseY, int listX, int listY, int w, int h, int scrollPixel) {
-        // 必须在可视区域内才显示 Tooltip
-        if (mouseX < listX || mouseX >= listX + w || mouseY < listY || mouseY >= listY + h) return;
+    private void renderListTooltips(GuiGraphics gfx, int mouseX, int mouseY) {
+        int listWidth = LIST_COLS * 18;
+        if (mouseX < listAreaX || mouseX >= listAreaX + listWidth ||
+                mouseY < listAreaY || mouseY >= listAreaY + LIST_HEIGHT) return;
 
-        int relativeY = mouseY - listY + scrollPixel;
-        int col = (mouseX - listX) / 18;
+        int relativeY = mouseY - listAreaY + getScrollPixels();
+        int col = (mouseX - listAreaX) / 18;
         int row = relativeY / 18;
-        int index = row * 9 + col;
+        int index = row * LIST_COLS + col;
 
         if (index >= 0 && index < whitelist.size()) {
             ItemStack stack = new ItemStack(whitelist.get(index).getBlock());
@@ -278,30 +289,18 @@ public class ConfigScreen extends Screen {
     }
 
     private void drawScrollBar(GuiGraphics gfx, int x, int y, int height) {
-        // 滚动条槽背景
         gfx.fill(x, y, x + 6, y + height, 0xFF000000);
-
         if (!needsScrollBars()) return;
-
-        // 计算滑块高度
-        int totalHeight = getTotalRows() * ROW_HEIGHT;
-        int visibleHeight = VISIBLE_ROWS * ROW_HEIGHT;
-        // 滑块大小 (比例)
-        int barHeight = (int) ((float) (visibleHeight * visibleHeight) / (float) totalHeight);
-        barHeight = Mth.clamp(barHeight, 32, height - 8);
-
-        // 计算滑块位置
+        int totalRows = getTotalRows();
+        int totalHeight = totalRows * ROW_HEIGHT;
+        int barHeight = Mth.clamp((int) ((float) (LIST_HEIGHT * LIST_HEIGHT) / (float) totalHeight), 32, height - 8);
         int barTop = (int) (this.scrollOffs * (float) (height - barHeight)) + y;
-
-        // 绘制滑块 (灰色)
         gfx.fill(x, barTop, x + 6, barTop + barHeight, 0xFF808080);
         gfx.fill(x, barTop, x + 5, barTop + barHeight - 1, 0xFFC0C0C0);
     }
 
-    // --- 辅助方法 ---
-
     private int getTotalRows() {
-        return (whitelist.size() + 8) / 9; // 向上取整
+        return (whitelist.size() + LIST_COLS - 1) / LIST_COLS;
     }
 
     private boolean needsScrollBars() {
@@ -310,17 +309,15 @@ public class ConfigScreen extends Screen {
 
     private int getScrollPixels() {
         if (!needsScrollBars()) return 0;
-        int totalHeight = getTotalRows() * ROW_HEIGHT;
-        int visibleHeight = VISIBLE_ROWS * ROW_HEIGHT;
-        return (int) ((totalHeight - visibleHeight) * this.scrollOffs);
+        return (int) ((getTotalRows() * ROW_HEIGHT - LIST_HEIGHT) * this.scrollOffs);
     }
 
     private void renderSlotBox(GuiGraphics gfx, int x, int y) {
-        gfx.fill(x, y, x + 18, y + 18, 0xFF202020);
+        gfx.fill(x, y, x + 18, y + 18, 0xFF252525);
         gfx.fill(x, y, x + 18, y + 1, 0xFF101010);
         gfx.fill(x, y, x + 1, y + 18, 0xFF101010);
-        gfx.fill(x, y + 17, x + 18, y + 18, 0xFF505050);
-        gfx.fill(x + 17, y, x + 18, y + 18, 0xFF505050);
+        gfx.fill(x, y + 17, x + 18, y + 18, 0xFF404040);
+        gfx.fill(x + 17, y, x + 18, y + 18, 0xFF404040);
     }
 
     private boolean isHovering(int x, int y, double mouseX, double mouseY) {
@@ -340,4 +337,22 @@ public class ConfigScreen extends Screen {
 
     @Override
     public boolean isPauseScreen() { return false; }
+
+    // ==========================================
+    //       【内部类】扁平化按钮
+    // ==========================================
+    private class DarkFlatButton extends Button {
+        public DarkFlatButton(int x, int y, int width, int height, Component message, OnPress onPress) {
+            super(x, y, width, height, message, onPress, DEFAULT_NARRATION);
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics gfx, int mouseX, int mouseY, float partialTick) {
+            int bgColor = this.isHoveredOrFocused() ? 0xFF505050 : 0xFF303030;
+            gfx.fill(getX(), getY(), getX() + width, getY() + height, bgColor);
+            gfx.renderOutline(getX(), getY(), width, height, 0xFF000000);
+            int textColor = this.active ? 0xFFFFFF : 0xA0A0A0;
+            gfx.drawCenteredString(font, getMessage(), getX() + width / 2, getY() + (height - 8) / 2, textColor);
+        }
+    }
 }

@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.mohuia.block_hide_seek.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "block_hide_seek.refmap.json",
+  "mixins": [
+    "PlayerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "client": [
+    "EntityDispatcherMixin"
+  ]
+}

@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+
+license="${mod_license}"
+
+[[mods]]
+modId="block_hide_seek"
+version="1.0.0"
+displayName="Block Hide and Seek"
+
+authors="MoHuia"
+
+description='''一个有趣的方块躲猫猫模组'''
+[[dependencies.${mod_id}]]
+    modId="forge"
+    mandatory=true
+    versionRange="${forge_version_range}"
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+

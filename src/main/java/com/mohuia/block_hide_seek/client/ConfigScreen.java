@@ -19,11 +19,11 @@ public class ConfigScreen extends Screen {
 
     // --- 1. 布局常量 ---
     private static final int GUI_WIDTH = 242;
-    private static final int GUI_HEIGHT = 236; // 稍微增高一点点，给中间留空隙
+    private static final int GUI_HEIGHT = 236;
 
-    // 列表配置 (12列 x 4行 = 48个可见)
+    // 列表配置
     private static final int LIST_COLS = 12;
-    private static final int VISIBLE_ROWS = 4; // 改回4行，保证垂直空间宽裕
+    private static final int VISIBLE_ROWS = 4;
     private static final int ROW_HEIGHT = 18;
 
     // 列表区域高度
@@ -55,30 +55,24 @@ public class ConfigScreen extends Screen {
         this.guiTop = (this.height - GUI_HEIGHT) / 2;
 
         // --- 坐标计算区域 ---
-
-        // 1. 白名单列表：顶部 Y=30
-        this.listAreaX = this.guiLeft + 12; // 左边距 12
+        this.listAreaX = this.guiLeft + 12;
         this.listAreaY = this.guiTop + 30;
 
-        // 2. 游戏规则按钮：位于列表下方 Y=106
+        // 游戏规则按钮
         int btnWidth = 120;
-        int btnX = this.guiLeft + (GUI_WIDTH - btnWidth) / 2; // 居中
-        int btnY = this.listAreaY + LIST_HEIGHT + 6; // 列表底部 + 6像素间隔
+        int btnX = this.guiLeft + (GUI_WIDTH - btnWidth) / 2;
+        int btnY = this.listAreaY + LIST_HEIGHT + 6;
 
         this.addRenderableWidget(new DarkFlatButton(btnX, btnY, btnWidth, 18, Component.literal("⚙ 游戏规则设置"), button -> {
             Minecraft.getInstance().setScreen(new GameSettingsScreen(this));
         }));
 
-        // 3. 玩家背包：位于最下方
-        // 背包标准宽度 162 (9 * 18)，需要居中
+        // 玩家背包位置
         this.invAreaX = this.guiLeft + (GUI_WIDTH - 162) / 2;
-
-        // 计算背包 Y 坐标
-        // 按钮底部(btnY + 18) + 间隔(16) + 文字预留
         this.invAreaY = btnY + 18 + 18;
     }
 
-    // --- 核心逻辑 ---
+
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
@@ -146,7 +140,7 @@ public class ConfigScreen extends Screen {
                     return true;
                 }
             }
-            // 快捷栏 (与主背包有4像素间隔)
+            // 快捷栏
             int hotbarY = invAreaY + 3 * 18 + 4;
             for (int i = 0; i < 9; i++) {
                 int x = invAreaX + i * 18;
@@ -189,10 +183,10 @@ public class ConfigScreen extends Screen {
         // 5. 渲染背包
         renderInventory(gfx, mouseX, mouseY);
 
-        // 6. 按钮 (super.render)
+        // 6. 按钮
         super.render(gfx, mouseX, mouseY, partialTick);
 
-        // 7. Tooltips (放在最上层)
+        // 7. Tooltips
         renderListTooltips(gfx, mouseX, mouseY);
     }
 
@@ -228,7 +222,6 @@ public class ConfigScreen extends Screen {
         }
         gfx.disableScissor();
 
-        // 滚动条
         drawScrollBar(gfx, listAreaX + listWidth + 6, listAreaY, LIST_HEIGHT);
     }
 
@@ -236,7 +229,6 @@ public class ConfigScreen extends Screen {
         Player player = Minecraft.getInstance().player;
         if (player == null) return;
 
-        // 主背包 (3行)
         for (int i = 9; i < 36; i++) {
             int col = (i % 9);
             int row = (i / 9) - 1;
@@ -245,7 +237,6 @@ public class ConfigScreen extends Screen {
             renderInvSlot(gfx, x, y, player.getInventory().getItem(i), mouseX, mouseY);
         }
 
-        // 快捷栏 (与主背包分开 4px)
         int hotbarY = invAreaY + 3 * 18 + 4;
         for (int i = 0; i < 9; i++) {
             int x = invAreaX + i * 18;
@@ -256,10 +247,9 @@ public class ConfigScreen extends Screen {
     private void renderInvSlot(GuiGraphics gfx, int x, int y, ItemStack stack, int mouseX, int mouseY) {
         renderSlotBox(gfx, x, y);
 
-        // 已添加标记 (绿色)
         if (!stack.isEmpty() && stack.getItem() instanceof BlockItem blockItem) {
             if (whitelist.contains(blockItem.getBlock().defaultBlockState())) {
-                gfx.fill(x + 1, y + 1, x + 17, y + 17, 0x6000AA00); // 稍微加深一点绿色
+                gfx.fill(x + 1, y + 1, x + 17, y + 17, 0x6000AA00);
             }
         }
 
@@ -338,9 +328,6 @@ public class ConfigScreen extends Screen {
     @Override
     public boolean isPauseScreen() { return false; }
 
-    // ==========================================
-    //       【内部类】扁平化按钮
-    // ==========================================
     private class DarkFlatButton extends Button {
         public DarkFlatButton(int x, int y, int width, int height, Component message, OnPress onPress) {
             super(x, y, width, height, message, onPress, DEFAULT_NARRATION);

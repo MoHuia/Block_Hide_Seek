@@ -246,9 +246,8 @@ public class SelectScreen extends Screen {
     }
 
     private void renderArknightsCard(GuiGraphics gfx, Card card, float timeSeconds, float closingProgress, float globalAlpha) {
-        // --- 1. 发牌音效逻辑 ---
+        // --- 1. 发牌音效逻辑 (保持不变) ---
         if (timeSeconds >= card.cardDelay && !card.playedEntrySound) {
-            // [修复] 去掉 .value()，因为报错说它是 SoundEvent
             Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.BOOK_PAGE_TURN, 1.4F, 0.8F));
             card.playedEntrySound = true;
         }
@@ -258,7 +257,8 @@ public class SelectScreen extends Screen {
 
         boolean isSelected = (card.index == selectedIndex);
         float finalAlpha = globalAlpha;
-        if (finalAlpha <= 0.01f) return;
+        // 阈值稍微调低一点，保证缩放到很小的时候还能看到一点点，避免过早截断
+        if (finalAlpha <= 0.001f) return;
 
         RenderSystem.setShaderColor(1f, 1f, 1f, finalAlpha);
 
@@ -275,6 +275,12 @@ public class SelectScreen extends Screen {
             float moveProgress = Mth.clamp(closingProgress / moveDuration, 0f, 1f);
             float scaleEase = easeOutCubic(moveProgress);
             hoverScale = Mth.lerp(scaleEase, 1.05f, 2.0f);
+
+            // [新增视觉优化]：在最后渐隐阶段，让卡片整体稍微放大一点点(扩散效果)，配合方块缩小
+            if (globalAlpha < 1.0f) {
+                // 当 alpha 从 1 降到 0 时，额外放大 0.2 倍
+                hoverScale += (1.0f - globalAlpha) * 0.2f;
+            }
         } else if (!isClosing && card.isHovered) {
             float rotateAngle = (float)Math.sin(timeSeconds * 3.0) * 1.5f;
             pose.mulPose(Axis.ZP.rotationDegrees(rotateAngle));
@@ -285,7 +291,7 @@ public class SelectScreen extends Screen {
 
         pose.translate(-CARD_WIDTH / 2.0f, -CARD_HEIGHT / 2.0f, 0);
 
-        // --- 绘制底板 ---
+        // --- 绘制底板 (保持不变) ---
         int bgColor = (card.isHovered || isSelected) ? 0xE62A2A2A : 0xE61A1A1A;
         int borderColor = (card.isHovered || isSelected) ? COLOR_ACCENT_CYAN : 0xFF444444;
 
@@ -297,6 +303,7 @@ public class SelectScreen extends Screen {
         }
 
         RenderSystem.enableBlend();
+        // 这里的 fill 会自动应用 ShaderColor 的 alpha，所以背景渐隐是正常的
         gfx.fill(0, 0, CARD_WIDTH, CARD_HEIGHT, bgColor);
 
         gfx.fill(0, 0, CARD_WIDTH, 1, borderColor);
@@ -310,18 +317,15 @@ public class SelectScreen extends Screen {
         gfx.fill(0, CARD_HEIGHT - cornerLen, 1, CARD_HEIGHT, cornerColor);
         gfx.fill(CARD_WIDTH - 1, CARD_HEIGHT - cornerLen, CARD_WIDTH, CARD_HEIGHT, cornerColor);
 
-        // --- 扫描线 ---
+        // --- 扫描线 (保持不变) ---
         if ((card.isHovered && !isClosing) || (isClosing && isSelected)) {
-            // [保持扫描速度一致]
             float scanSpeed = 0.8f;
-
             float scanPos = (timeSeconds * scanSpeed) % 2.0f;
             if (scanPos > 1.0f) scanPos = 2.0f - scanPos;
 
             int scanY = (int) (scanPos * CARD_HEIGHT);
             int scanColor = 0x4000D2FF;
             gfx.fill(1, scanY, CARD_WIDTH-1, scanY + 2, scanColor);
-
             gfx.fill(0, 0, 18, 18, COLOR_ACCENT_CYAN);
         } else {
             gfx.fill(0, 0, 18, 18, 0xFF333333);
@@ -330,21 +334,36 @@ public class SelectScreen extends Screen {
         int indexColor = (card.isHovered || isSelected) ? 0xFF000000 : 0xFFAAAAAA;
         gfx.drawCenteredString(this.font, String.valueOf(card.index + 1), 9, 5, indexColor);
 
-        // 物品
+        // --- [核心修改] 物品渲染 ---
         float blockProgress = Mth.clamp((timeSeconds - card.blockDelay) / 0.4f, 0f, 1f);
         float blockScale = easeOutBack(blockProgress);
 
         if (blockProgress > 0) {
             pose.pushPose();
             pose.translate(CARD_WIDTH / 2.0f, CARD_HEIGHT / 2.0f - 10, 50);
+
             float finalScale = 3.0F * blockScale;
+
+            // [新增逻辑] 如果正在渐隐关闭 (alpha < 1.0)，强制缩小物品
+            // 这样物品会随着背景变淡而变小，直到消失，解决了 renderItem 不透明的问题
+            if (isClosing && globalAlpha < 1.0f) {
+                // 使用平方插值让缩小过程在视觉上更平滑 (alpha=0.5时 scale=0.25)
+                float fadeFactor = globalAlpha * globalAlpha;
+                finalScale *= fadeFactor;
+            }
+
             pose.scale(finalScale, finalScale, finalScale);
-            gfx.renderItem(card.itemStack, -8, -8);
+
+            // 只有当比例足够大时才渲染，避免渲染极小的噪点
+            if (finalScale > 0.05f) {
+                gfx.renderItem(card.itemStack, -8, -8);
+            }
             pose.popPose();
         }
 
         // 文字
         Component name = card.state.getBlock().getName();
+        // 文字颜色通常能响应 ShaderColor 的 Alpha，所以这里不需要改 scale
         int nameColor = (card.isHovered || isSelected) ? COLOR_ACCENT_CYAN : COLOR_TEXT_GRAY;
 
         pose.pushPose();
@@ -356,6 +375,13 @@ public class SelectScreen extends Screen {
             fontScale = (float)(CARD_WIDTH - 10) / nameWidth;
         }
         pose.scale(fontScale, fontScale, 1f);
+
+        // 可以在这里也加上一点渐隐时的文字缩放，更加统一，可选
+        if (isClosing && globalAlpha < 1.0f) {
+            // 让文字也稍微变小一点点
+            float textFadeScale = 0.8f + (0.2f * globalAlpha);
+            pose.scale(textFadeScale, textFadeScale, 1f);
+        }
 
         gfx.drawCenteredString(this.font, name, 0, 0, nameColor);
         pose.popPose();
@@ -372,6 +398,7 @@ public class SelectScreen extends Screen {
         pose.popPose();
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
     }
+
 
     private void drawStyledTitle(GuiGraphics gfx, float time) {
         gfx.fill(20, 20, 25, 25, COLOR_ACCENT_ORANGE);

@@ -47,14 +47,14 @@ public class CommonEvents {
         });
     }
 
-    @SubscribeEvent
-    public static void onLivingAttack(net.minecraftforge.event.entity.living.LivingDamageEvent event) {
-        if (event.getEntity().level().isClientSide) return;
-
-        if (event.getEntity() instanceof ServerPlayer victim && event.getSource().getEntity() instanceof ServerPlayer attacker) {
-            GameLoopManager.onPlayerAttack(attacker, victim);
-        }
-    }
+//    @SubscribeEvent
+//    public static void onLivingAttack(net.minecraftforge.event.entity.living.LivingDamageEvent event) {
+//        if (event.getEntity().level().isClientSide) return;
+//
+//        if (event.getEntity() instanceof ServerPlayer victim && event.getSource().getEntity() instanceof ServerPlayer attacker) {
+//            GameLoopManager.onPlayerAttack(attacker, victim);
+//        }
+//    }
 
     @SubscribeEvent
     public static void onServerTick(net.minecraftforge.event.TickEvent.ServerTickEvent event) {

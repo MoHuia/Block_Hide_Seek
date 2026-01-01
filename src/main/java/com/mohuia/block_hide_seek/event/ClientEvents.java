@@ -27,6 +27,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.client.event.RenderNameTagEvent;
 import net.minecraftforge.client.event.RenderPlayerEvent;
@@ -342,4 +343,25 @@ public class ClientEvents {
             event.register(KeyInit.LOCK_ROTATION);
         }
     }
+    private static long lastSendMs = 0;
+
+    @SubscribeEvent
+    public static void onLeftClick(InputEvent.InteractionKeyMappingTriggered e) {
+        if (!e.isAttack()) return; // 左键攻击键
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        if (mc.screen != null) return; // 打开 GUI 时不发（按需）
+
+        // 防抖：避免按住左键每 tick 发包
+        long now = System.currentTimeMillis();
+        if (now - lastSendMs < 20) return;
+        lastSendMs = now;
+
+        // debug 时先开粒子线：true；平时关掉就 false
+        boolean debugParticles = false;
+        System.out.println("客户端发现你点了一次左键");
+        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SAttackRaycast(debugParticles));
+    }
+
 }

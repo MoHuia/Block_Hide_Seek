@@ -1,24 +1,23 @@
 package com.mohuia.block_hide_seek.game;
 
-import com.mohuia.block_hide_seek.hitbox.ObbRaycast;
-import com.mohuia.block_hide_seek.hitbox.ObbUtil;
-import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
-import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
-import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
-import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
-
-
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.event.GameEndEvent;
 import com.mohuia.block_hide_seek.event.GameStartEvent;
+import com.mohuia.block_hide_seek.hitbox.ObbRaycast;
+import com.mohuia.block_hide_seek.hitbox.ObbUtil;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.world.BlockWhitelistData;
 import com.mohuia.block_hide_seek.world.ServerGameConfig;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -32,23 +31,23 @@ import java.util.List;
 
 /**
  * 游戏核心循环管理器
- * 负责游戏的开始、结束、倒计时、胜负判定以及玩家阵营管理
  */
 public class GameLoopManager {
 
-    // 标记游戏是否正在进行中
     private static boolean isGameRunning = false;
-    // 游戏剩余时间（单位：Tick，20 ticks = 1秒）
     private static int ticksRemaining = 0;
+
+    /**
+     * ✅ 供网络包判断用
+     */
+    public static boolean isGameRunning() {
+        return isGameRunning;
+    }
 
     // ==========================================
     //              游戏流程控制
     // ==========================================
 
-    /**
-     * 开始游戏主逻辑
-     * @param starter 触发开始指令的玩家
-     */
     public static void startGame(ServerPlayer starter) {
         if (isGameRunning) {
             starter.sendSystemMessage(Component.literal("❌ 游戏已经在进行中了！"));
@@ -64,10 +63,8 @@ public class GameLoopManager {
             return;
         }
 
-        // 读取配置
         ServerGameConfig config = ServerGameConfig.get(level);
 
-        // 人数校验
         if (players.size() < 2) {
             starter.sendSystemMessage(Component.literal("❌ 人数不足，至少需要 2 人！"));
             return;
@@ -77,33 +74,25 @@ public class GameLoopManager {
             return;
         }
 
-        // 初始化游戏状态
         isGameRunning = true;
         ticksRemaining = config.gameDurationSeconds * 20;
 
-        // 重置状态
         resetAllPlayers(level);
         Collections.shuffle(players);
 
-        // 获取白名单
         BlockWhitelistData whitelistData = BlockWhitelistData.get(level);
         List<BlockState> allowedBlocks = new ArrayList<>(whitelistData.getAllowedStates());
         if (allowedBlocks.isEmpty()) allowedBlocks.add(Blocks.CRAFTING_TABLE.defaultBlockState());
 
-        // 分配抓捕者
         for (int i = 0; i < config.seekerCount; i++) {
             makeSeeker(players.get(i), true);
         }
 
-        // 分配躲藏者
         for (int i = config.seekerCount; i < players.size(); i++) {
             makeHider(players.get(i), allowedBlocks);
         }
 
-        // 抛出开始事件 (供 KubeJS 监听传送)
         MinecraftForge.EVENT_BUS.post(new GameStartEvent(level));
-
-        // 广播
         broadcast(level, Component.literal("游戏开始！限时 " + config.gameDurationSeconds + " 秒！").withStyle(ChatFormatting.GREEN));
     }
 
@@ -117,44 +106,30 @@ public class GameLoopManager {
         player.sendSystemMessage(Component.literal("🛠️已进入单人调试模式").withStyle(ChatFormatting.GOLD));
     }
 
-    /**
-     * 停止游戏
-     */
     public static void stopGame(ServerLevel level, WinnerType winner, Component reason) {
-        if (!isGameRunning) return; // 防止重复停止
-
+        if (!isGameRunning) return;
         isGameRunning = false;
 
-        // 1. 发送 Forge 事件 (供 KubeJS 监听结束逻辑)
         MinecraftForge.EVENT_BUS.post(new GameEndEvent(level, winner, reason));
-
-        // 2. 重置所有人
         resetAllPlayers(level);
-
-        // 3. 广播
         broadcast(level, Component.literal("🛑 游戏结束！").append(reason).withStyle(ChatFormatting.GOLD));
     }
 
-    /**
-     * 游戏主循环 (Tick)
-     * 需要在 GameTickHandler 中被调用
-     */
     public static void tick(ServerLevel level) {
         if (!isGameRunning) return;
 
         ticksRemaining--;
 
-        // --- 1. 胜利条件 A：时间耗尽 -> 躲藏者胜利 ---
         if (ticksRemaining <= 0) {
             stopGame(level, WinnerType.HIDERS, Component.literal("时间到！躲藏者获胜！🎉"));
             return;
         }
 
-        // --- 2. 倒计时广播 ---
-        if (ticksRemaining % 1200 == 0) { // 每分钟
+        if (ticksRemaining % 1200 == 0) {
             broadcast(level, Component.literal("⏳ 剩余时间: " + (ticksRemaining / 20 / 60) + " 分钟"));
         }
-        if (ticksRemaining == 200) { // 最后10秒
+
+        if (ticksRemaining == 200) {
             broadcast(level, Component.literal("⏳ 最后 10 秒！").withStyle(ChatFormatting.RED));
             level.getServer().getCommands().performPrefixedCommand(
                     level.getServer().createCommandSourceStack().withSuppressedOutput(),
@@ -162,70 +137,161 @@ public class GameLoopManager {
             );
         }
 
-        // --- 3. 胜利条件 B：保底检测 (防止 handleHiderHit 未触发) ---
         if (ticksRemaining % 20 == 0) {
             checkSeekerWinCondition(level);
         }
     }
 
-    /**
-     * 【新增】检查是否抓捕者获胜（所有人都变成了抓捕者）
-     */
     private static void checkSeekerWinCondition(ServerLevel level) {
-        // 统计还有多少个活着的躲藏者
         long hiderCount = level.players().stream().filter(p -> {
             if (p.isSpectator()) return false;
             var cap = p.getCapability(GameDataProvider.CAP).orElse(null);
-            // 如果 cap 存在且不是抓捕者，那就是躲藏者
             return cap != null && !cap.isSeeker();
         }).count();
 
-        // 如果没有躲藏者了，抓捕者胜
         if (hiderCount == 0) {
             stopGame(level, WinnerType.SEEKERS, Component.literal("⚔️ 所有躲藏者都被抓获！抓捕者胜利！"));
         }
     }
 
-    // ==========================================
-    //              玩家互动逻辑 (PVP)
-    // ==========================================
+//    // ==========================================
+//    //              玩家互动逻辑 (PVP)
+//    // ==========================================
+//
+//    public static void onPlayerAttack(ServerPlayer attacker, ServerPlayer victim) {
+//        if (!isGameRunning) return;
+//
+//        attacker.getCapability(GameDataProvider.CAP).ifPresent(atCap -> {
+//            if (!atCap.isSeeker()) return;
+//
+//            victim.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
+//                if (vicCap.isSeeker()) return;
+//
+//                boolean obbHit = isHitVictimObb(attacker, victim);
+//                if (!obbHit) return;
+//
+//                // ✅ 无敌帧内不重复扣
+//                if (isInIFrames(victim)) return;
+//
+//                // ✅ 原版攻击事件这条路径：也做同样的模拟（否则你会只扣次数但没表现）
+//                simulateVanillaLikeHit(attacker, victim,);
+//
+//                handleHiderHit(attacker, victim, vicCap);
+//            });
+//        });
+//    }
 
-    public static void onPlayerAttack(ServerPlayer attacker, ServerPlayer victim) {
+    private static boolean isHitVictimObb(ServerPlayer attacker, ServerPlayer victim) {
+        Vec3 origin = attacker.getEyePosition();
+        Vec3 dir = attacker.getLookAngle().normalize();
+        double reach = getReach(attacker);
+
+        return ObbUtil.getPlayerObb(victim)
+                .map(obb -> ObbRaycast.hit(origin, dir, reach, obb))
+                .orElse(false);
+    }
+
+    private static double getReach(ServerPlayer attacker) {
+        double reach = 3.5;
+        try {
+            var attr = attacker.getAttribute(ForgeMod.ENTITY_REACH.get());
+            if (attr != null) reach = Math.max(reach, attr.getValue());
+        } catch (Throwable ignored) {
+        }
+        return reach;
+    }
+
+    /**
+     * ✅ 新增：抓捕者左键触发（不依赖点到实体）
+     * - 服务端发射射线
+     * - 忽略自己
+     * - 用粒子画线 debug（可开关）
+     */
+    public static void onSeekerLeftClickRaycast(ServerPlayer attacker, boolean debugParticles) {
         if (!isGameRunning) return;
 
         attacker.getCapability(GameDataProvider.CAP).ifPresent(atCap -> {
             if (!atCap.isSeeker()) return;
 
-            victim.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
+            ServerLevel level = attacker.serverLevel();
+            Vec3 origin = attacker.getEyePosition();
+            Vec3 dir = attacker.getLookAngle().normalize();
+            double reach = getReach(attacker);
+
+            if (debugParticles) {
+                spawnDebugRay(level, origin, dir, reach);
+            }
+            System.out.println("服务端发现你点了一次左键");
+            // 找最近的、命中 OBB 的躲藏者
+            RaycastTarget target = raycastFindClosestHiderOBB(attacker, origin, dir, reach);
+
+            if (target == null) return;
+
+            // 命中才处理
+            target.victim.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
                 if (vicCap.isSeeker()) return;
 
-                // ✅ 只有命中 OBB 才算
-                boolean obbHit = isHitVictimObb(attacker, victim);
-                if (!obbHit) return;
+                // ✅ 无敌帧内：不重复击退，也不扣次数
+                if (isInIFrames(target.victim)) return;
 
-                handleHiderHit(attacker, victim, vicCap);
+                // ✅ 先模拟受击效果（击退+动画+无敌帧）
+                simulateVanillaLikeHit(attacker, target.victim, dir);
+
+                // ✅ 再扣次数（这样无敌帧内不会瞬间耗完）
+                handleHiderHit(attacker, target.victim, vicCap);
             });
         });
     }
 
-    private static boolean isHitVictimObb(ServerPlayer attacker, ServerPlayer victim) {
-        // 射线起点：攻击者眼睛位置
-        Vec3 origin = attacker.getEyePosition();
+    private static RaycastTarget raycastFindClosestHiderOBB(ServerPlayer attacker, Vec3 origin, Vec3 dir, double reach) {
+        ServerLevel level = attacker.serverLevel();
 
-        // 射线方向：攻击者视线方向（归一化）
-        Vec3 dir = attacker.getLookAngle().normalize();
+        ServerPlayer bestVictim = null;
+        double bestT = Double.POSITIVE_INFINITY;
 
-        // 攻击距离：优先用 Forge Reach Attribute（有则更准），没有就用保守值
-        double reach = 3.5; // 生存默认近战大概 3.0 左右，这里给一点余量
-        try {
-            var attr = attacker.getAttribute(ForgeMod.ENTITY_REACH.get());
-            if (attr != null) reach = Math.max(reach, attr.getValue());
-        } catch (Throwable ignored) {}
+        for (ServerPlayer p : level.players()) {
+            if (p == attacker) continue;       // ✅ 不检测自己
+            if (p.isSpectator()) continue;
 
-        double finalReach = reach;
-        return ObbUtil.getPlayerObb(victim)
-                .map(obb -> ObbRaycast.hit(origin, dir, finalReach, obb))
-                .orElse(false);
+            var cap = p.getCapability(GameDataProvider.CAP).orElse(null);
+            if (cap == null) continue;
+            if (cap.isSeeker()) continue;      // 只抓躲藏者
+
+            var obbOpt = ObbUtil.getPlayerObb(p);
+            if (obbOpt.isEmpty()) continue;
+
+            double t = ObbRaycast.hitDistance(origin, dir, reach, obbOpt.get());
+            if (t >= 0.0 && t < bestT) {
+                bestT = t;
+                bestVictim = p;
+            }
+        }
+
+        if (bestVictim == null) return null;
+        return new RaycastTarget(bestVictim, bestT);
+    }
+
+    /**
+     * ✅ 粒子画线：沿射线每 step 刷一个粒子点
+     */
+    private static void spawnDebugRay(ServerLevel level, Vec3 origin, Vec3 dirNorm, double dist) {
+        int steps = (int) Math.max(8, dist * 16); // 距离越远点越密
+        double step = dist / steps;
+
+        for (int i = 0; i <= steps; i++) {
+            Vec3 p = origin.add(dirNorm.scale(step * i));
+            level.sendParticles(ParticleTypes.END_ROD, p.x, p.y, p.z, 1, 0, 0, 0, 0);
+        }
+    }
+
+    private static final class RaycastTarget {
+        final ServerPlayer victim;
+        final double t;
+
+        RaycastTarget(ServerPlayer victim, double t) {
+            this.victim = victim;
+            this.t = t;
+        }
     }
 
     private static void handleHiderHit(ServerPlayer attacker, ServerPlayer victim, com.mohuia.block_hide_seek.data.IGameData vicCap) {
@@ -235,7 +301,6 @@ public class GameLoopManager {
         int currentHits = vicCap.getHitCount();
         int maxHits = config.hitsToConvert;
 
-        // Action Bar 提示
         attacker.displayClientMessage(
                 Component.literal("🗡️ 击中目标！ (" + currentHits + "/" + maxHits + ")").withStyle(ChatFormatting.YELLOW),
                 true
@@ -245,25 +310,71 @@ public class GameLoopManager {
                 true
         );
 
-        // 达到上限，转换阵营
         if (currentHits >= maxHits) {
             broadcast(attacker.serverLevel(), victim.getDisplayName().copy().append(" 被抓住了，变成了抓捕者！").withStyle(ChatFormatting.YELLOW));
-
-            makeSeeker(victim, false); // 变为抓捕者
-
-            // 【关键】立刻检查是否游戏结束（是不是最后一个人）
+            makeSeeker(victim, false);
             checkSeekerWinCondition(attacker.serverLevel());
         }
+    }
+
+    // ================================
+// ✅ 新增：受击模拟（击退 + 无敌帧 + 动画）
+// ================================
+    private static final int FAKE_IFRAMES_TICKS = 10;     // 小无敌帧：10 tick = 0.5s
+    private static final int FAKE_HURT_ANIM_TICKS = 10;   // 受击红光/抖动时长
+    private static final float FAKE_KNOCKBACK = 0.4F;     // 原版近战击退大概就是这个量级
+
+    /**
+     * 命中后先检查：无敌帧内不允许重复扣次数
+     */
+    private static boolean isInIFrames(ServerPlayer victim) {
+        // invulnerableTime：原版无敌帧计时
+        // hurtTime：受击动画计时（通常 <= hurtDuration）
+        return victim.invulnerableTime > 0 || victim.hurtTime > 0;
+    }
+
+    /**
+     * 模拟一次“像被玩家近战打中”的效果（不扣血）
+     */
+    private static void simulateVanillaLikeHit(ServerPlayer attacker, ServerPlayer victim, Vec3 rayDirNorm) {
+        // ✅ 使用射线方向来决定击退方向
+        // LivingEntity#knockback 的参数是 (strength, xRatio, zRatio)，
+        // 它会用 ratio 来决定水平击退方向
+        double xRatio = rayDirNorm.x;
+        double zRatio = rayDirNorm.z;
+
+        // 如果射线几乎是竖直的，水平分量太小会导致击退怪异，这里兜底
+        double horiz = Math.sqrt(xRatio * xRatio + zRatio * zRatio);
+        if (horiz < 1e-6) {
+            float yaw = attacker.getYRot();
+            xRatio = -Math.sin(yaw * (Math.PI / 180.0));
+            zRatio = Math.cos(yaw * (Math.PI / 180.0));
+            horiz = Math.sqrt(xRatio * xRatio + zRatio * zRatio);
+        }
+
+        xRatio /= horiz;
+        zRatio /= horiz;
+
+        victim.knockback(FAKE_KNOCKBACK, xRatio, zRatio);
+
+        // 无敌帧 + 受击动画
+        victim.invulnerableTime = FAKE_IFRAMES_TICKS;
+        victim.hurtTime = FAKE_HURT_ANIM_TICKS;
+        victim.hurtDuration = FAKE_HURT_ANIM_TICKS;
+
+        // 客户端受击红光/抖动
+        victim.level().broadcastEntityEvent(victim, (byte) 2);
+
+        // ✅ 受击音效：见下面第2点
+        playHurtSound(attacker, victim);
+
+        victim.hurtMarked = true;
     }
 
     // ==========================================
     //              角色分配辅助方法
     // ==========================================
 
-    /**
-     * 将玩家设置为抓捕者
-     * @param isStart true=游戏刚开始分配; false=中途被抓转化
-     */
     private static void makeSeeker(ServerPlayer player, boolean isStart) {
         player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
             cap.setSeeker(true);
@@ -271,38 +382,23 @@ public class GameLoopManager {
             cap.setHitCount(0);
             syncData(player, true, null);
         });
-        // 【新增】添加身份标签，供 KubeJS 识别
+
         player.addTag("role_seeker");
-        // 1. 添加隐藏血条标签
         player.addTag("bhs_hide_health");
 
-        // 2. 恢复状态
         player.setHealth(player.getMaxHealth());
         player.getInventory().clearOrCountMatchingItems(p -> true, -1, player.inventoryMenu.getCraftSlots());
 
-        // ==================================================
-        //              【新增】 发送大标题和音效
-        // ==================================================
-
-        // A. 设置标题动画 (淡入: 10 tick, 停留: 60 tick, 淡出: 20 tick)
         player.connection.send(new ClientboundSetTitlesAnimationPacket(10, 60, 20));
-
-        // B. 设置主标题内容 (大红字)
         Component titleText = Component.literal("👹 你成为了抓捕者！")
                 .withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD);
         player.connection.send(new ClientboundSetTitleTextPacket(titleText));
 
-        // C. 设置副标题内容 (根据是开局还是被抓，显示不同提示)
         String subStr = isStart ? "去抓捕所有躲藏者！" : "你被抓住了，加入抓捕阵营！";
         Component subText = Component.literal(subStr).withStyle(ChatFormatting.GOLD);
         player.connection.send(new ClientboundSetSubtitleTextPacket(subText));
 
-        // D. 播放音效 (雷声，增加震撼感)
-        // 参数：声音类型, 声音来源, 音量, 音调
         player.playNotifySound(SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.PLAYERS, 1.0f, 1.0f);
-
-        // 如果想要那种更压抑的声音，可以用这个替代上面的雷声：
-        // player.playNotifySound(SoundEvents.ELDER_GUARDIAN_CURSE, SoundSource.PLAYERS, 1.0f, 1.0f);
     }
 
     private static void makeHider(ServerPlayer player, List<BlockState> options) {
@@ -313,7 +409,6 @@ public class GameLoopManager {
             syncData(player, false, null);
         });
 
-        // 【新增】添加隐藏血条的标签
         player.addTag("bhs_hide_health");
 
         List<BlockState> myOptions = new ArrayList<>(options);
@@ -335,10 +430,7 @@ public class GameLoopManager {
             syncData(player, false, null);
         });
 
-        // 【新增】移除身份标签
         player.removeTag("role_seeker");
-
-        // 【新增】移除隐藏血条的标签，恢复显示
         player.removeTag("bhs_hide_health");
 
         player.setHealth(player.getMaxHealth());
@@ -364,5 +456,17 @@ public class GameLoopManager {
         for (ServerPlayer player : level.players()) {
             player.sendSystemMessage(msg);
         }
+    }
+
+    private static void playHurtSound(ServerPlayer attacker, ServerPlayer victim) {
+        // 在 victim 身上播放（所有附近玩家都听到）
+        victim.level().playSound(
+                null, // null = 广播给附近所有玩家
+                victim.getX(), victim.getY(), victim.getZ(),
+                SoundEvents.PLAYER_HURT,
+                SoundSource.PLAYERS,
+                1.0F,
+                1.0F
+        );
     }
 }

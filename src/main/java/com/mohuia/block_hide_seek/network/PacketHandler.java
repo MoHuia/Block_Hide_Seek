@@ -51,6 +51,9 @@ public class PacketHandler {
         // 【新增】模型尺寸请求与响应 (用于 /bhs block 调试)
         INSTANCE.registerMessage(id++, S2CRequestModelData.class, S2CRequestModelData::encode, S2CRequestModelData::decode, S2CRequestModelData::handle);
         INSTANCE.registerMessage(id++, C2SModelSizeResponse.class, C2SModelSizeResponse::encode, C2SModelSizeResponse::decode, C2SModelSizeResponse::handle);
+        //左键检查
+
+        INSTANCE.registerMessage(id++, C2SAttackRaycast.class, C2SAttackRaycast::encode, C2SAttackRaycast::decode, C2SAttackRaycast::handle);
     }
 
     // ==========================================
@@ -462,6 +465,38 @@ public class PacketHandler {
             });
             ctx.get().setPacketHandled(true);
 
+        }
+    }
+
+    // ==========================================
+//        ✅ 新增：左键触发服务端射线检测
+// ==========================================
+    public static class C2SAttackRaycast {
+
+        /** debug 粒子开关：你也可以改成读取服务端 config */
+        private final boolean debugParticles;
+
+        public C2SAttackRaycast(boolean debugParticles) {
+            this.debugParticles = debugParticles;
+        }
+
+        public static void encode(C2SAttackRaycast msg, FriendlyByteBuf buf) {
+            buf.writeBoolean(msg.debugParticles);
+        }
+
+        public static C2SAttackRaycast decode(FriendlyByteBuf buf) {
+            return new C2SAttackRaycast(buf.readBoolean());
+        }
+
+        public static void handle(C2SAttackRaycast msg, Supplier<NetworkEvent.Context> ctx) {
+            ctx.get().enqueueWork(() -> {
+                ServerPlayer player = ctx.get().getSender();
+                if (player == null) return;
+
+                // ✅ 服务端判断：游戏进行中才处理
+                com.mohuia.block_hide_seek.game.GameLoopManager.onSeekerLeftClickRaycast(player, msg.debugParticles);
+            });
+            ctx.get().setPacketHandled(true);
         }
     }
 

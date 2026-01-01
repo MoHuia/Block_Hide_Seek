@@ -2,31 +2,32 @@ package com.mohuia.block_hide_seek.hitbox;
 
 import net.minecraft.world.phys.Vec3;
 
+/**
+ * OBB Raycast：仅支持绕 Y 轴旋转的 OBB
+ * 提供：返回命中距离 t（射线参数，dir 已归一化时 t=距离）
+ */
 public final class ObbRaycast {
     private ObbRaycast() {}
 
-    /**
-     * 射线(起点origin, 方向dir归一化) 与 仅绕Y轴旋转的OBB 相交测试
-     * 返回：是否在 [0, maxDist] 内击中
-     */
-    public static boolean hit(Vec3 origin, Vec3 dir, double maxDist, VirtualOBB obb) {
-        // 1) 转到OBB局部空间：p' = R(-yaw) * (p - center)
+    /** 返回最近命中距离；若未命中返回 -1 */
+    public static double hitDistance(Vec3 origin, Vec3 dirNormalized, double maxDist, VirtualOBB obb) {
+        // 1) 转到 OBB 局部空间：p' = R(-yaw) * (p - center)
         Vec3 oc = origin.subtract(obb.getCenter());
 
-        float yaw = (float) (obb.getYawDegrees() * Math.PI / 180.0);
-        float cos = (float) Math.cos(-yaw);
-        float sin = (float) Math.sin(-yaw);
+        double yawRad = obb.getYawDegrees() * Math.PI / 180.0;
+        double cos = Math.cos(-yawRad);
+        double sin = Math.sin(-yawRad);
 
         // 局部坐标：x/z 绕Y旋转，y不变
         double ox = oc.x * cos - oc.z * sin;
         double oy = oc.y;
         double oz = oc.x * sin + oc.z * cos;
 
-        double dx = dir.x * cos - dir.z * sin;
-        double dy = dir.y;
-        double dz = dir.x * sin + dir.z * cos;
+        double dx = dirNormalized.x * cos - dirNormalized.z * sin;
+        double dy = dirNormalized.y;
+        double dz = dirNormalized.x * sin + dirNormalized.z * cos;
 
-        // 2) 在局部空间对 AABB(-hx..hx, -hy..hy, -hz..hz) 做 slab test
+        // 2) slab test：对局部 AABB(-hx..hx, -hy..hy, -hz..hz)
         double tMin = 0.0;
         double tMax = maxDist;
 
@@ -35,30 +36,42 @@ public final class ObbRaycast {
         double hz = obb.getHalfZ();
 
         // X
-        if (!slab(ox, dx, -hx, hx, Ref.of(tMin), Ref.of(tMax))) return false;
-        tMin = Ref.tMin; tMax = Ref.tMax;
+        double[] out = slab(ox, dx, -hx, hx, tMin, tMax);
+        if (out == null) return -1;
+        tMin = out[0]; tMax = out[1];
 
         // Y
-        if (!slab(oy, dy, -hy, hy, Ref.of(tMin), Ref.of(tMax))) return false;
-        tMin = Ref.tMin; tMax = Ref.tMax;
+        out = slab(oy, dy, -hy, hy, tMin, tMax);
+        if (out == null) return -1;
+        tMin = out[0]; tMax = out[1];
 
         // Z
-        if (!slab(oz, dz, -hz, hz, Ref.of(tMin), Ref.of(tMax))) return false;
-        tMin = Ref.tMin; tMax = Ref.tMax;
+        out = slab(oz, dz, -hz, hz, tMin, tMax);
+        if (out == null) return -1;
+        tMin = out[0]; tMax = out[1];
 
-        return tMax >= tMin && tMax >= 0.0;
+        if (tMax < 0.0) return -1;     // 整体在射线反方向
+        if (tMax < tMin) return -1;
+
+        // 进入点就是 tMin；如果起点在盒子里，tMin 可能为 0
+        return tMin;
     }
 
-    private static boolean slab(double o, double d, double min, double max, Ref tMinRef, Ref tMaxRef) {
-        double tMin = tMinRef.v;
-        double tMax = tMaxRef.v;
+    /** 仅返回是否命中（保留你原来的 boolean 用法） */
+    public static boolean hit(Vec3 origin, Vec3 dirNormalized, double maxDist, VirtualOBB obb) {
+        return hitDistance(origin, dirNormalized, maxDist, obb) >= 0.0;
+    }
 
+    /**
+     * slab 返回 {newTMin, newTMax}；若不相交返回 null
+     */
+    private static double[] slab(double o, double d, double min, double max, double tMin, double tMax) {
         final double EPS = 1e-9;
+
         if (Math.abs(d) < EPS) {
             // 平行该轴：起点不在范围内则不可能相交
-            if (o < min || o > max) return false;
-            Ref.tMin = tMin; Ref.tMax = tMax;
-            return true;
+            if (o < min || o > max) return null;
+            return new double[]{tMin, tMax};
         }
 
         double inv = 1.0 / d;
@@ -69,20 +82,7 @@ public final class ObbRaycast {
         tMin = Math.max(tMin, t1);
         tMax = Math.min(tMax, t2);
 
-        if (tMax < tMin) return false;
-
-        Ref.tMin = tMin; Ref.tMax = tMax;
-        return true;
-    }
-
-    /**
-     * 小技巧：避免一堆数组/AtomicDouble，直接用静态暂存（单线程tick里用没问题）
-     */
-    private static final class Ref {
-        static double tMin;
-        static double tMax;
-        final double v;
-        private Ref(double v) { this.v = v; }
-        static Ref of(double v) { return new Ref(v); }
+        if (tMax < tMin) return null;
+        return new double[]{tMin, tMax};
     }
 }

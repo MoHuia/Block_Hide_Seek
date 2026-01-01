@@ -76,7 +76,7 @@ public class PlayerMixin {
 
                 // 5. 应用尺寸
                 // 宽度固定 0.5F (保持身法灵活)，高度完全同步模型
-                cir.setReturnValue(EntityDimensions.fixed(cap.getModelWidth(), clampedHeight));
+                cir.setReturnValue(EntityDimensions.fixed(cap.getModelWidth()-0.4f, clampedHeight));
             }
         });
     }

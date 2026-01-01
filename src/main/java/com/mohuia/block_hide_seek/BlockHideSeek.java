@@ -1,5 +1,6 @@
 package com.mohuia.block_hide_seek;
 
+import com.mohuia.block_hide_seek.client.ObbDebugRender;
 import com.mohuia.block_hide_seek.command.BlockHuntCommand;
 import com.mohuia.block_hide_seek.item.ModItems; // <--- 导入刚才写的注册类
 import com.mohuia.block_hide_seek.network.PacketHandler;
@@ -58,7 +59,7 @@ public class BlockHideSeek {
     private void clientSetup(final FMLClientSetupEvent event) {
         // 只在客户端注册渲染监听器
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
-            net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new com.mohuia.block_hide_seek.client.ObbDebugRender());
+            net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new ObbDebugRender());
         });
     }
 

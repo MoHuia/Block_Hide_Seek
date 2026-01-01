@@ -64,7 +64,7 @@ public class ClientEvents {
     // 进度 0~1（每 帧 增长）
     private static float alignYawT = 1.0f;
     // 本次吸附的持续时间（秒）——你可以调：0.12~0.25 都常见
-    private static final float ALIGN_YAW_DURATION_SEC = 0.18f;
+    private static final float ALIGN_YAW_DURATION_SEC = 0.28f;
 
     //======锁定=======
     // 是否激活了旋转锁定模式
@@ -378,6 +378,7 @@ public class ClientEvents {
                 if (isAlignActive || isRotationLocked) {
                     resetStates();
                     player.displayClientMessage(Component.literal("§c已解除锁定"), true);
+                    PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSetYawLock(false, 0.0f));
                 }
             }
             // 3. 静止状态：允许功能切换

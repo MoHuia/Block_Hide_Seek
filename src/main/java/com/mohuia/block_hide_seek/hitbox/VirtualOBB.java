@@ -19,6 +19,10 @@ public final class VirtualOBB {
     private final float cosYaw;
     private final float sinYaw;
 
+    // ✅ 缓存：避免 render 每帧 new 数组
+    private final Vec3[] cachedEdges = new Vec3[24];
+    private boolean edgesBuilt = false;
+
     public VirtualOBB(Vec3 center, float sizeX, float sizeY, float sizeZ, float yawDegrees) {
         this.center = center;
         this.halfX = sizeX * 0.5f;
@@ -50,7 +54,27 @@ public final class VirtualOBB {
     }
 
     /**
-     * 8个角点（世界坐标）。顺序不保证组成面顺序，调试/包围盒可用。
+     * OBB 的包围AABB（世界轴对齐），用于粗略裁剪/临时兼容 AABB API。
+     * （这个会分配临时数组/Vec3，建议不要在 render 每帧频繁调用）
+     */
+    public AABB toEnclosingAABB() {
+        Vec3[] c = getCornersWorld();
+        double minX = c[0].x, minY = c[0].y, minZ = c[0].z;
+        double maxX = c[0].x, maxY = c[0].y, maxZ = c[0].z;
+
+        for (int i = 1; i < c.length; i++) {
+            minX = Math.min(minX, c[i].x);
+            minY = Math.min(minY, c[i].y);
+            minZ = Math.min(minZ, c[i].z);
+            maxX = Math.max(maxX, c[i].x);
+            maxY = Math.max(maxY, c[i].y);
+            maxZ = Math.max(maxZ, c[i].z);
+        }
+        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /**
+     * 8个角点（世界坐标）。调试/包围盒可用（会分配数组）。
      */
     public Vec3[] getCornersWorld() {
         Vec3[] corners = new Vec3[8];
@@ -70,60 +94,46 @@ public final class VirtualOBB {
     }
 
     /**
-     * OBB 的包围AABB（世界轴对齐），用于粗略裁剪/临时兼容 AABB API。
+     * ✅ 返回线框12条边（24个点，pairs形式：0-1,2-3...）
+     * ✅ 内部缓存：每个 VirtualOBB 实例只构建一次，不会在 render 重复 new 数组
      */
-    public AABB toEnclosingAABB() {
-        Vec3[] c = getCornersWorld();
-        double minX = c[0].x, minY = c[0].y, minZ = c[0].z;
-        double maxX = c[0].x, maxY = c[0].y, maxZ = c[0].z;
+    public Vec3[] getWireframeEdgesCached() {
+        if (edgesBuilt) return cachedEdges;
 
-        for (int i = 1; i < c.length; i++) {
-            minX = Math.min(minX, c[i].x);
-            minY = Math.min(minY, c[i].y);
-            minZ = Math.min(minZ, c[i].z);
-            maxX = Math.max(maxX, c[i].x);
-            maxY = Math.max(maxY, c[i].y);
-            maxZ = Math.max(maxZ, c[i].z);
-        }
-        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
-    }
-
-    /**
-     * 返回线框12条边（24个点，pairs形式：0-1,2-3...）
-     * 你渲染时按 pairs 画线即可。
-     */
-    public Vec3[] getWireframeEdges() {
         // 固定顺序的8个顶点：底面 0-3，顶面 4-7
         // 0: (-,-,-) 1:(+,-,-) 2:(+,-,+) 3:(-,-,+)
         // 4: (-,+,-) 5:(+,+,-) 6:(+,+,+) 7:(-,+,+)
-        Vec3[] v = new Vec3[8];
+        Vec3 v0 = center.add(localToWorldDir(-halfX, -halfY, -halfZ));
+        Vec3 v1 = center.add(localToWorldDir(+halfX, -halfY, -halfZ));
+        Vec3 v2 = center.add(localToWorldDir(+halfX, -halfY, +halfZ));
+        Vec3 v3 = center.add(localToWorldDir(-halfX, -halfY, +halfZ));
 
-        double[] xs = new double[]{-halfX, +halfX};
-        double[] ys = new double[]{-halfY, +halfY};
-        double[] zs = new double[]{-halfZ, +halfZ};
+        Vec3 v4 = center.add(localToWorldDir(-halfX, +halfY, -halfZ));
+        Vec3 v5 = center.add(localToWorldDir(+halfX, +halfY, -halfZ));
+        Vec3 v6 = center.add(localToWorldDir(+halfX, +halfY, +halfZ));
+        Vec3 v7 = center.add(localToWorldDir(-halfX, +halfY, +halfZ));
 
-        v[0] = center.add(localToWorldDir(xs[0], ys[0], zs[0]));
-        v[1] = center.add(localToWorldDir(xs[1], ys[0], zs[0]));
-        v[2] = center.add(localToWorldDir(xs[1], ys[0], zs[1]));
-        v[3] = center.add(localToWorldDir(xs[0], ys[0], zs[1]));
-
-        v[4] = center.add(localToWorldDir(xs[0], ys[1], zs[0]));
-        v[5] = center.add(localToWorldDir(xs[1], ys[1], zs[0]));
-        v[6] = center.add(localToWorldDir(xs[1], ys[1], zs[1]));
-        v[7] = center.add(localToWorldDir(xs[0], ys[1], zs[1]));
-
-        int[][] edges = new int[][]{
-                {0, 1}, {1, 2}, {2, 3}, {3, 0}, // bottom
-                {4, 5}, {5, 6}, {6, 7}, {7, 4}, // top
-                {0, 4}, {1, 5}, {2, 6}, {3, 7}  // vertical
-        };
-
-        Vec3[] out = new Vec3[24];
         int o = 0;
-        for (int[] e : edges) {
-            out[o++] = v[e[0]];
-            out[o++] = v[e[1]];
-        }
-        return out;
+
+        // bottom
+        cachedEdges[o++] = v0; cachedEdges[o++] = v1;
+        cachedEdges[o++] = v1; cachedEdges[o++] = v2;
+        cachedEdges[o++] = v2; cachedEdges[o++] = v3;
+        cachedEdges[o++] = v3; cachedEdges[o++] = v0;
+
+        // top
+        cachedEdges[o++] = v4; cachedEdges[o++] = v5;
+        cachedEdges[o++] = v5; cachedEdges[o++] = v6;
+        cachedEdges[o++] = v6; cachedEdges[o++] = v7;
+        cachedEdges[o++] = v7; cachedEdges[o++] = v4;
+
+        // vertical
+        cachedEdges[o++] = v0; cachedEdges[o++] = v4;
+        cachedEdges[o++] = v1; cachedEdges[o++] = v5;
+        cachedEdges[o++] = v2; cachedEdges[o++] = v6;
+        cachedEdges[o++] = v3; cachedEdges[o++] = v7;
+
+        edgesBuilt = true;
+        return cachedEdges;
     }
 }

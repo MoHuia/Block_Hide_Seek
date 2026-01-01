@@ -40,30 +40,59 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 客户端核心事件处理类
+ * 负责：渲染伪装方块、处理按键逻辑、发送攻击请求
+ */
 @Mod.EventBusSubscriber(modid = BlockHideSeek.MODID, value = Dist.CLIENT)
 public class ClientEvents {
 
-    // 状态控制变量
-    private static Float lockedBodyYaw = null;      // 锁定的身体朝向 (null 表示未锁定)
-    private static boolean isAlignActive = false;   // 是否开启位置对齐
-    private static boolean isRotationLocked = false;// 是否开启旋转锁定
+    // ==========================================
+    // 状态控制变量 (State Variables)
+    // ==========================================
 
+    // 锁定的朝向角度 (null 表示未锁定，非 null 表示锁定在特定角度)
+    private static Float lockedBodyYaw = null;
+    // 是否激活了位置吸附对齐
+    private static boolean isAlignActive = false;
+    // 是否激活了旋转锁定模式
+    private static boolean isRotationLocked = false;
+    // 上次发送攻击包的时间 (用于防抖)
+    private static long lastSendMs = 0;
+
+    // 模型中心点偏移缓存 (避免每帧重复计算模型包围盒)
     private static final Map<BlockState, float[]> MODEL_OFFSET_CACHE = new HashMap<>();
 
+    // ==========================================
+    // 渲染逻辑 (Rendering)
+    // ==========================================
+
+    /**
+     * 在玩家渲染之前触发。
+     * 如果玩家是伪装者，取消原版玩家渲染，改为渲染方块。
+     */
     @SubscribeEvent
     public static void onRenderPlayerPre(RenderPlayerEvent.Pre event) {
         Player player = event.getEntity();
+        // 获取 Capability 数据
         player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+            // 如果是抓捕者(Seeker)，不做任何处理，直接返回
             if (cap.isSeeker()) return;
 
             BlockState state = cap.getDisguise();
+            // 如果有伪装数据，且不是隐形方块
             if (state != null && state.getRenderShape() != RenderShape.INVISIBLE) {
+                // 1. 取消原版玩家渲染 (不画史蒂夫/艾利克斯)
                 event.setCanceled(true);
+                // 2. 执行自定义方块渲染
                 renderDisguise(event, state);
             }
         });
     }
 
+    /**
+     * 核心渲染方法：决定如何画出伪装的方块/物品
+     */
     private static void renderDisguise(RenderPlayerEvent.Pre event, BlockState state) {
         PoseStack poseStack = event.getPoseStack();
         poseStack.pushPose();
@@ -71,30 +100,38 @@ public class ClientEvents {
         Player player = event.getEntity();
         float renderYaw;
 
-        // 如果开启了旋转锁定，并且是当前玩家自己，强制使用锁定角度
+        // --- [修改点] 角度计算逻辑 ---
+
+        // 1. 如果开启了【方向锁定】(Caps Lock)，且渲染的是当前玩家自己
+        //    则强制使用锁定时的角度，无视当前鼠标朝向，实现“自由观察”
         if (lockedBodyYaw != null && player == Minecraft.getInstance().player) {
             renderYaw = lockedBodyYaw;
-        } else {
-            // 否则使用平滑插值
+        }
+        // 2. 否则，完全跟随【玩家准星/视线】(View Yaw)
+        //    这样操作更灵敏，指哪打哪，不再有身体转动的延迟
+        else {
             float partialTick = event.getPartialTick();
-            renderYaw = Mth.rotLerp(partialTick, player.yBodyRotO, player.yBodyRot);
+            renderYaw = player.getViewYRot(partialTick);
         }
 
+        // 应用旋转 (注意：Minecraft 渲染旋转通常取反)
         poseStack.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-renderYaw));
 
         Level level = player.level();
 
-        // 1. 实体方块
+        // 根据方块类型分发渲染任务：
+
+        // A. 实体方块 (如：箱子、告示牌，通常用 Item 渲染更稳)
         if (state.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED) {
             renderEntityBlockAsItem(event, poseStack, state);
         }
-        // 2. 3D 物品
+        // B. 3D 物品模型 (如：梯子、火把、栅栏等，作为物品渲染位置更正)
         else if (shouldRenderAsItem(state, level)) {
             ItemStack stack = new ItemStack(state.getBlock());
             BakedModel itemModel = Minecraft.getInstance().getItemRenderer().getModel(stack, level, null, 0);
             renderItemWithAutoCenter(event, poseStack, state, stack, itemModel);
         }
-        // 3. 普通方块
+        // C. 普通方块 (如：石头、泥土，直接渲染 BlockModel)
         else {
             renderBlockManually(event, poseStack, state);
         }
@@ -102,75 +139,133 @@ public class ClientEvents {
         poseStack.popPose();
     }
 
-    // ... [中间的渲染辅助方法 renderItemWithAutoCenter, renderBlockManually, renderEntityBlockAsItem, renderSingleBlockModel, calculateModelOffsets, shouldRenderAsItem 保持不变，为了篇幅省略，请直接复用之前的代码] ...
-    // ... [onRenderNameTag 也保持不变] ...
+    /**
+     * 隐藏玩家头顶的名字标签
+     * 躲猫猫模式下，伪装者不应该显示名字
+     */
+    @SubscribeEvent
+    public static void onRenderNameTag(RenderNameTagEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+                // 如果不是抓捕者(即伪装者)，且有伪装状态 -> 隐藏名字
+                if (!cap.isSeeker() && cap.getDisguise() != null) {
+                    event.setResult(Event.Result.DENY);
+                }
+            });
+        }
+    }
 
-    // 为了完整性，这里我把必须的辅助方法占位写一下，实际使用请保留你之前的代码
+    // ==========================================
+    // 渲染辅助方法 (Helper Methods)
+    // ==========================================
+
+    /**
+     * 判断是否应该作为物品渲染 (比如火把、梯子这些非全立方体)
+     */
     private static boolean shouldRenderAsItem(BlockState state, Level level) {
         ItemStack stack = new ItemStack(state.getBlock());
         if (stack.isEmpty()) return false;
+        // 检查物品模型是否是 GUI 3D 属性 (通常意味着它在手中也是立体的)
         BakedModel itemModel = Minecraft.getInstance().getItemRenderer().getModel(stack, level, null, 0);
         return itemModel.isGui3d();
     }
+
+    /**
+     * 渲染物品模式，并自动居中
+     */
     private static void renderItemWithAutoCenter(RenderPlayerEvent.Pre event, PoseStack poseStack, BlockState state, ItemStack stack, BakedModel model) {
-        // ... 复用之前的代码 ...
-        // 如果你需要我再次发送这段渲染代码，请告诉我
-        // 这里假设上面的渲染逻辑你已经有了，重点看下面的 Tick 逻辑
         poseStack.pushPose();
+
+        // 计算偏移量，确保视觉中心在脚下
         float[] offsets = MODEL_OFFSET_CACHE.computeIfAbsent(state, s -> calculateModelOffsets(model));
         float transX = 0.5f - offsets[0];
         float transY = 0.5f - offsets[1];
         float transZ = 0.5f - offsets[2];
+
         poseStack.translate(transX, transY, transZ);
+
+        // 获取光照
         BlockPos lightPos = BlockPos.containing(event.getEntity().getX(), event.getEntity().getEyeY(), event.getEntity().getZ());
         int light = LevelRenderer.getLightColor(event.getEntity().level(), lightPos);
+
+        // 调用原版 ItemRenderer
         Minecraft.getInstance().getItemRenderer().renderStatic(stack, net.minecraft.world.item.ItemDisplayContext.NONE, light, OverlayTexture.NO_OVERLAY, poseStack, event.getMultiBufferSource(), event.getEntity().level(), 0);
+
         poseStack.popPose();
     }
+
+    /**
+     * 手动渲染普通方块 (BlockModel)
+     * 支持多层纹理和半透明
+     */
     private static void renderBlockManually(RenderPlayerEvent.Pre event, PoseStack poseStack, BlockState state) {
-        // ... 复用之前的代码 ...
         var blockRenderer = Minecraft.getInstance().getBlockRenderer();
         BakedModel model = blockRenderer.getBlockModel(state);
         Level level = event.getEntity().level();
         BlockPos pos = event.getEntity().blockPosition();
+
+        // 偏移修正
         float[] offsets = MODEL_OFFSET_CACHE.computeIfAbsent(state, s -> calculateModelOffsets(model));
+
         poseStack.pushPose();
+        // 反向偏移，把模型拉回到原点中心
         poseStack.translate(-offsets[0], -offsets[1], -offsets[2]);
+
         RenderType renderType = ItemBlockRenderTypes.getRenderType(state, false);
         VertexConsumer buffer = event.getMultiBufferSource().getBuffer(renderType);
+
         BlockPos lightPos = BlockPos.containing(event.getEntity().getX(), event.getEntity().getEyeY(), event.getEntity().getZ());
         int light = LevelRenderer.getLightColor(level, lightPos);
         long fixedSeed = state.getSeed(BlockPos.ZERO);
+
+        // 渲染下半部分
         renderSingleBlockModel(poseStack, buffer, model, state, light, fixedSeed, level, pos);
+
+        // 特殊处理：如果是双层方块(如高草/门)的下半截，尝试自动渲染上半截
         if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && state.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.LOWER) {
             BlockState upperState = state.setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, DoubleBlockHalf.UPPER);
             BakedModel upperModel = blockRenderer.getBlockModel(upperState);
+
             poseStack.pushPose();
-            poseStack.translate(0.0, 1.0, 0.0);
+            poseStack.translate(0.0, 1.0, 0.0); // 向上移动一格
             renderSingleBlockModel(poseStack, buffer, upperModel, upperState, light, fixedSeed, level, pos);
             poseStack.popPose();
         }
+
         poseStack.popPose();
     }
+
+    /**
+     * 渲染实体方块 (EntityBlock) 代理为物品渲染
+     */
     private static void renderEntityBlockAsItem(RenderPlayerEvent.Pre event, PoseStack poseStack, BlockState state) {
-        // ... 复用之前的代码 ...
         ItemStack stack = new ItemStack(state.getBlock());
         if (stack.isEmpty()) return;
+
         poseStack.pushPose();
+        // 大多数实体方块物品模型中心在底部，往上提 0.5 看起来更自然
         poseStack.translate(0.0, 0.5, 0.0);
+
         BlockPos lightPos = BlockPos.containing(event.getEntity().getX(), event.getEntity().getEyeY(), event.getEntity().getZ());
         int light = LevelRenderer.getLightColor(event.getEntity().level(), lightPos);
+
         Minecraft.getInstance().getItemRenderer().renderStatic(stack, net.minecraft.world.item.ItemDisplayContext.NONE, light, OverlayTexture.NO_OVERLAY, poseStack, event.getMultiBufferSource(), event.getEntity().level(), 0);
+
         poseStack.popPose();
     }
+
+    /**
+     * 底层方法：遍历 Quad 进行绘制
+     */
     private static void renderSingleBlockModel(PoseStack poseStack, VertexConsumer buffer, BakedModel model, BlockState state, int light, long seed, Level level, BlockPos pos) {
-        // ... 复用之前的代码 ...
         RandomSource rand = RandomSource.create();
+        // 遍历所有方向 + null 方向
         for (Direction dir : new Direction[]{null, Direction.UP, Direction.DOWN, Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST}) {
             rand.setSeed(seed);
             List<BakedQuad> quads = model.getQuads(state, dir, rand);
             for (BakedQuad quad : quads) {
                 float r = 1f, g = 1f, b = 1f;
+                // 处理硬编码颜色 (如草地颜色)
                 if (quad.isTinted()) {
                     int color = Minecraft.getInstance().getBlockColors().getColor(state, level, pos, quad.getTintIndex());
                     r = (float)(color >> 16 & 255) / 255.0F;
@@ -181,12 +276,16 @@ public class ClientEvents {
             }
         }
     }
+
+    /**
+     * 计算模型的几何中心点 (用于居中校正)
+     */
     private static float[] calculateModelOffsets(BakedModel model) {
-        // ... 复用之前的代码 ...
         float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
         float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
         float minZ = Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
         boolean found = false;
+
         RandomSource rand = RandomSource.create();
         for (Direction dir : new Direction[]{null, Direction.UP, Direction.DOWN, Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST}) {
             List<BakedQuad> quads = model.getQuads(null, dir, rand);
@@ -197,6 +296,7 @@ public class ClientEvents {
                     float x = Float.intBitsToFloat(vertices[offset]);
                     float y = Float.intBitsToFloat(vertices[offset + 1]);
                     float z = Float.intBitsToFloat(vertices[offset + 2]);
+
                     if (x < minX) minX = x; if (x > maxX) maxX = x;
                     if (y < minY) minY = y; if (y > maxY) maxY = y;
                     if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
@@ -204,25 +304,19 @@ public class ClientEvents {
                 }
             }
         }
+
+        // 如果模型是空的，默认居中
         if (!found) return new float[]{0.5f, 0.0f, 0.5f};
+
+        // X 和 Z 取中点，Y 取最低点 (保证方块站在地上)
         float midX = (minX + maxX) / 2.0f;
         float midZ = (minZ + maxZ) / 2.0f;
         return new float[]{midX, minY, midZ};
     }
-    @SubscribeEvent
-    public static void onRenderNameTag(RenderNameTagEvent event) {
-        if (event.getEntity() instanceof Player player) {
-            player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-                if (!cap.isSeeker() && cap.getDisguise() != null) {
-                    event.setResult(Event.Result.DENY);
-                }
-            });
-        }
-    }
 
 
     // ==========================================
-    //           核心控制逻辑 (已修改)
+    // 逻辑控制与按键 (Logic & Input)
     // ==========================================
 
     @SubscribeEvent
@@ -231,24 +325,25 @@ public class ClientEvents {
         LocalPlayer player = Minecraft.getInstance().player;
         if (player == null) return;
 
-        // 定期清理缓存
+        // 定期清理缓存 (防止内存泄漏)
         if (player.tickCount % 1200 == 0) {
             MODEL_OFFSET_CACHE.clear();
         }
 
-        // 物理高度修正
+        // --- 物理高度修正 ---
+        // 确保客户端的碰撞箱高度和伪装数据一致
         float expectedHeight = player.getDimensions(player.getPose()).height;
         float actualHeight = player.getBbHeight();
         if (Math.abs(expectedHeight - actualHeight) > 0.01f) {
             player.refreshDimensions();
         }
 
-        // 处理菜单按键
+        // --- 打开菜单 (按键: O) ---
         while (KeyInit.OPEN_CONFIG.consumeClick()) {
             PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SRequestConfig());
         }
 
-        // 处理移动、对齐与锁定逻辑
+        // --- 移动、对齐与锁定逻辑 ---
         handleControlLogic(player);
     }
 
@@ -260,36 +355,37 @@ public class ClientEvents {
                 return;
             }
 
-            // 1. 检测玩家是否正在移动 (输入 或 速度)
-            // forwardImpulse 和 leftImpulse 代表 WASD 输入
+            // 1. 检测玩家是否正在移动
             boolean hasInput = Math.abs(player.input.forwardImpulse) > 0 || Math.abs(player.input.leftImpulse) > 0;
             boolean isJumping = player.input.jumping;
-            // deltaMovement 代表实际位移速度
             boolean isMoving = player.getDeltaMovement().lengthSqr() > 0.005;
 
-            // 2. 如果检测到移动输入 -> 强制取消所有锁定
+            // 2. 移动保护：如果有移动输入，强制取消所有锁定状态
+            //    (避免玩家忘记解锁导致操作困难)
             if (hasInput || isJumping || (!player.onGround() && isMoving)) {
                 if (isAlignActive || isRotationLocked) {
                     resetStates();
                     player.displayClientMessage(Component.literal("§c已解除锁定"), true);
                 }
             }
-            // 3. 静止状态 -> 允许切换功能
+            // 3. 静止状态：允许功能切换
             else {
-                // 切换位置对齐 (Left Alt)
+                // [Alt] 切换位置对齐
                 if (KeyInit.TOGGLE_ALIGN.consumeClick()) {
                     isAlignActive = !isAlignActive;
                     player.displayClientMessage(Component.literal(isAlignActive ? "§a自动对齐: 开启" : "§c自动对齐: 关闭"), true);
                 }
 
-                // 切换视角锁定 (Caps Lock)
+                // [Caps Lock] 切换方向锁定
                 if (KeyInit.LOCK_ROTATION.consumeClick()) {
                     isRotationLocked = !isRotationLocked;
 
                     if (isRotationLocked) {
-                        // 锁定当前朝向到最近的 90 度
-                        float currentBodyYaw = player.yBodyRot;
-                        lockedBodyYaw = (float) (Math.round(currentBodyYaw / 90.0f) * 90.0f);
+                        // 锁定当前【视线】角度到最近的 90 度 (或者直接保留当前视线)
+                        // 这里我们取整 90 度让它更像方块
+                        float currentViewYaw = player.getViewYRot(1.0f);
+                        lockedBodyYaw = (float) (Math.round(currentViewYaw / 90.0f) * 90.0f);
+
                         player.displayClientMessage(Component.literal("§a方向锁定: 开启 (自由视角)"), true);
                     } else {
                         lockedBodyYaw = null;
@@ -297,12 +393,12 @@ public class ClientEvents {
                     }
                 }
 
-                // 执行对齐逻辑
+                // 执行对齐逻辑 (吸附到方块中心)
                 if (isAlignActive) {
                     performPositionSnap(player);
                 }
 
-                // 维护 lockedBodyYaw 状态
+                // 维护状态同步
                 if (!isRotationLocked) {
                     lockedBodyYaw = null;
                 }
@@ -316,52 +412,59 @@ public class ClientEvents {
         lockedBodyYaw = null;
     }
 
+    /**
+     * 位置吸附逻辑：平滑地将玩家拉向方块中心 (x.5, z.5)
+     */
     private static void performPositionSnap(LocalPlayer player) {
         double targetX = Math.floor(player.getX()) + 0.5;
         double targetZ = Math.floor(player.getZ()) + 0.5;
         double currentX = player.getX();
         double currentZ = player.getZ();
 
-        // 平滑吸附
+        // 平滑插值 (0.2 的系数让它看起来像磁铁吸附)
         double newX = currentX + (targetX - currentX) * 0.2;
         double newZ = currentZ + (targetZ - currentZ) * 0.2;
 
+        // 如果距离非常近，直接吸附到位，防止抖动
         if (Math.abs(targetX - currentX) < 0.005) newX = targetX;
         if (Math.abs(targetZ - currentZ) < 0.005) newZ = targetZ;
 
-        // 仅修改位置，不修改旋转
+        // 仅修改位置，保留原有 Yaw/Pitch
         player.setPos(newX, player.getY(), newZ);
     }
 
+    /**
+     * 注册额外的客户端按键
+     */
     @Mod.EventBusSubscriber(modid = BlockHideSeek.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
     public static class ModBusEvents {
         @SubscribeEvent
         public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
-            event.register(KeyInit.OPEN_CONFIG);
-            // 注册新按键
-            event.register(KeyInit.TOGGLE_ALIGN);
-            event.register(KeyInit.LOCK_ROTATION);
+            event.register(KeyInit.OPEN_CONFIG); // 菜单
+            event.register(KeyInit.TOGGLE_ALIGN); // 对齐 (Alt)
+            event.register(KeyInit.LOCK_ROTATION); // 锁定 (Caps Lock)
         }
     }
-    private static long lastSendMs = 0;
 
+    /**
+     * 攻击判定入口
+     * 监听左键，发送射线检测包
+     */
     @SubscribeEvent
     public static void onLeftClick(InputEvent.InteractionKeyMappingTriggered e) {
-        if (!e.isAttack()) return; // 左键攻击键
+        if (!e.isAttack()) return; // 必须是左键攻击
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (mc.screen != null) return; // 打开 GUI 时不发（按需）
+        if (mc.screen != null) return; // 打开 GUI 时不触发
 
-        // 防抖：避免按住左键每 tick 发包
+        // 防抖：避免按住左键时每 Tick 都发包，导致服务器过载
         long now = System.currentTimeMillis();
-        if (now - lastSendMs < 20) return;
+        if (now - lastSendMs < 50) return; // 50ms 冷却
         lastSendMs = now;
 
-        // debug 时先开粒子线：true；平时关掉就 false
-        boolean debugParticles = false;
-        System.out.println("客户端发现你点了一次左键");
+        // 发送攻击请求到服务端
+        boolean debugParticles = false; // 调试开关
         PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SAttackRaycast(debugParticles));
     }
-
 }

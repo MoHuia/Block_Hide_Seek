@@ -26,8 +26,7 @@ public final class ObbUtil {
             double z = player.getZ();
 
             Vec3 center = new Vec3(x, yBase + sizeY * 0.5, z);
-            float yaw = player.getYRot();
-
+            float yaw = data.isYawLocked() ? data.getLockedYaw() : player.getYRot();
             return new VirtualOBB(center, sizeX, sizeY, sizeZ, yaw);
         });
     }

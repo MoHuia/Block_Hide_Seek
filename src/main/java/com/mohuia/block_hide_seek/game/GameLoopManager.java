@@ -183,16 +183,16 @@ public class GameLoopManager {
 //            });
 //        });
 //    }
-
-    private static boolean isHitVictimObb(ServerPlayer attacker, ServerPlayer victim) {
-        Vec3 origin = attacker.getEyePosition();
-        Vec3 dir = attacker.getLookAngle().normalize();
-        double reach = getReach(attacker);
-
-        return ObbUtil.getPlayerObb(victim)
-                .map(obb -> ObbRaycast.hit(origin, dir, reach, obb))
-                .orElse(false);
-    }
+//
+//    private static boolean isHitVictimObb(ServerPlayer attacker, ServerPlayer victim) {
+//        Vec3 origin = attacker.getEyePosition();
+//        Vec3 dir = attacker.getLookAngle().normalize();
+//        double reach = getReach(attacker);
+//
+//        return ObbUtil.getPlayerObb(victim)
+//                .map(obb -> ObbRaycast.hit(origin, dir, reach, obb))
+//                .orElse(false);
+//    }
 
     private static double getReach(ServerPlayer attacker) {
         double reach = 3.5;
@@ -260,7 +260,7 @@ public class GameLoopManager {
             if (cap == null) continue;
             if (cap.isSeeker()) continue;      // 只抓躲藏者
 
-            var obbOpt = ObbUtil.getPlayerObb(p);
+            var obbOpt = ObbUtil.getPlayerObb(p);//这里是我的第二个位置
             if (obbOpt.isEmpty()) continue;
 
             double t = ObbRaycast.hitDistance(origin, dir, reach, obbOpt.get());

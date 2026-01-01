@@ -13,6 +13,9 @@ public class GameDataImp implements IGameData {
     private float AABBy = 1.0f;
     private float AABBz = 1.0f;
 
+    private boolean yawLocked = false;
+    private float lockedYaw = 0.0f;
+
     @Override
     public void setModelSize(float width, float height) {
         this.modelWidth = width;
@@ -102,5 +105,25 @@ public class GameDataImp implements IGameData {
         this.AABBx = other.getAABBX();
         this.AABBy = other.getAABBY();
         this.AABBz = other.getAABBZ();
+    }
+
+    @Override
+    public boolean isYawLocked() {
+        return yawLocked;
+    }
+
+    @Override
+    public void setYawLocked(boolean locked) {
+        this.yawLocked = locked;
+    }
+
+    @Override
+    public float getLockedYaw() {
+        return lockedYaw;
+    }
+
+    @Override
+    public void setLockedYaw(float yaw) {
+        this.lockedYaw = yaw;
     }
 }

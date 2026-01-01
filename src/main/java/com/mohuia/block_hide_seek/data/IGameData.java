@@ -27,4 +27,10 @@ public interface IGameData {
     void incrementHitCount();
 
     void copyFrom(IGameData other);
+
+    //锁定
+    boolean isYawLocked();
+    void setYawLocked(boolean locked);
+    float getLockedYaw();
+    void setLockedYaw(float yaw);
 }

@@ -36,6 +36,7 @@ import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.security.KeyStore;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,8 +54,19 @@ public class ClientEvents {
 
     // 锁定的朝向角度 (null 表示未锁定，非 null 表示锁定在特定角度)
     private static Float lockedBodyYaw = null;
-    // 是否激活了位置吸附对齐
+
+    //======吸附=======
+    // 是否激活了位置吸附对齐，这个的目的是为了平滑吸附而不是瞬间位移
     private static boolean isAlignActive = false;
+    // 角度修正的起点/终点（单位：度）
+    private static float alignYawStart = 0.0f;
+    private static float alignYawTarget = 0.0f;
+    // 进度 0~1（每 帧 增长）
+    private static float alignYawT = 1.0f;
+    // 本次吸附的持续时间（秒）——你可以调：0.12~0.25 都常见
+    private static final float ALIGN_YAW_DURATION_SEC = 0.18f;
+
+    //======锁定=======
     // 是否激活了旋转锁定模式
     private static boolean isRotationLocked = false;
     // 上次发送攻击包的时间 (用于防抖)
@@ -372,8 +384,20 @@ public class ClientEvents {
             else {
                 // [Alt] 切换位置对齐
                 if (KeyInit.TOGGLE_ALIGN.consumeClick()) {
-                    isAlignActive = !isAlignActive;
-                    player.displayClientMessage(Component.literal(isAlignActive ? "§a自动对齐: 开启" : "§c自动对齐: 关闭"), true);
+                    // 即便是修正过程中按按钮，也不影响正常修正
+                    if (!isAlignActive) {
+                        isAlignActive = true;
+
+                        // 起点：当前身体 yaw
+                        alignYawStart = player.getYRot();
+
+                        // 终点：以视角 yaw 吸附到最近 90°
+                        float viewYaw = player.getViewYRot(1.0f);
+                        alignYawTarget = (float) (Math.round(viewYaw / 90.0f) * 90.0f);
+
+                        // 进度归零——之后由“按帧事件”推进
+                        alignYawT = 0.0f;
+                    }
                 }
 
                 // [Caps Lock] 切换方向锁定
@@ -381,23 +405,21 @@ public class ClientEvents {
                     isRotationLocked = !isRotationLocked;
 
                     if (isRotationLocked) {
-                        // 锁定当前【视线】角度到最近的 90 度 (或者直接保留当前视线)
-                        // 这里我们取整 90 度让它更像方块
-                        float currentViewYaw = player.getViewYRot(1.0f);
-                        lockedBodyYaw = (float) (Math.round(currentViewYaw / 90.0f) * 90.0f);
-
+                        lockedBodyYaw = player.getViewYRot(1.0f);
                         player.displayClientMessage(Component.literal("§a方向锁定: 开启 (自由视角)"), true);
+                        // ✅ 发包通知服务端（锁定 + yaw）
+                        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSetYawLock(true, lockedBodyYaw));
                     } else {
                         lockedBodyYaw = null;
                         player.displayClientMessage(Component.literal("§c方向锁定: 关闭"), true);
+                        // ✅ 发包通知服务端（解除锁定）
+                        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSetYawLock(false, 0.0f));
                     }
                 }
-
                 // 执行对齐逻辑 (吸附到方块中心)
-                if (isAlignActive) {
+                if (isAlignActive) {//每帧进行
                     performPositionSnap(player);
                 }
-
                 // 维护状态同步
                 if (!isRotationLocked) {
                     lockedBodyYaw = null;
@@ -421,15 +443,12 @@ public class ClientEvents {
         double currentX = player.getX();
         double currentZ = player.getZ();
 
-        // 平滑插值 (0.2 的系数让它看起来像磁铁吸附)
         double newX = currentX + (targetX - currentX) * 0.2;
         double newZ = currentZ + (targetZ - currentZ) * 0.2;
 
-        // 如果距离非常近，直接吸附到位，防止抖动
         if (Math.abs(targetX - currentX) < 0.005) newX = targetX;
         if (Math.abs(targetZ - currentZ) < 0.005) newZ = targetZ;
 
-        // 仅修改位置，保留原有 Yaw/Pitch
         player.setPos(newX, player.getY(), newZ);
     }
 
@@ -466,5 +485,59 @@ public class ClientEvents {
         // 发送攻击请求到服务端
         boolean debugParticles = false; // 调试开关
         PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SAttackRaycast(debugParticles));
+    }
+    //================按帧滑动屏幕=================
+    //先注册
+    @SubscribeEvent
+    public static void onRenderTick(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+
+        if (!isAlignActive) return;
+
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer player = mc.player;
+        if (player == null) return;
+
+        // 这里的 frameTime 在 1.20 是 “本帧的 partial tick”（0~1）
+        // 把它换算成秒：每 tick = 1/20 秒
+        float dtSec = mc.getFrameTime() / 20.0f;
+
+        performYawSnapPerFrame(player, dtSec);
+    }
+    private static void performYawSnapPerFrame(LocalPlayer player, float dtSec) {
+        if (alignYawT >= 1.0f) return;
+
+        // 推进进度：dt / duration
+        float step = dtSec / ALIGN_YAW_DURATION_SEC;
+        alignYawT = Math.min(1.0f, alignYawT + step);
+
+        // 缓动：0~1 -> 0~1（更丝滑）
+        float eased = easeInOutCubic(alignYawT);
+
+        // 最短角度差，避免转大圈
+        float delta = Mth.wrapDegrees(alignYawTarget - alignYawStart);
+        float yawNow = alignYawStart + delta * eased;
+
+        // ✅ 作用于玩家本身（第一人称画面会跟着变）
+        player.setYRot(yawNow);
+        player.setYHeadRot(yawNow);
+        player.setYBodyRot(yawNow);
+
+        // 避免插值回弹
+        player.yRotO = yawNow;
+        player.yBodyRotO = yawNow;
+
+        // 到位后可选择结束吸附（如果你希望 Alt 只是“一次工具”）
+        if (alignYawT >= 1.0f) {
+            // 如果你希望“位置仍然继续吸到中心”，但角度已完成，可以只停角度，不停位置
+            // 这里按你当前逻辑：吸附整体结束
+            isAlignActive = false;
+        }
+    }
+    private static float easeInOutCubic(float t) {
+        // t: 0~1
+        return (t < 0.5f)
+                ? 4.0f * t * t * t
+                : 1.0f - (float) Math.pow(-2.0f * t + 2.0f, 3.0f) / 2.0f;
     }
 }

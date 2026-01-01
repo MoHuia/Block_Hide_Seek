@@ -51,7 +51,9 @@ public class ObbDebugRender {
                 double z = Mth.lerp(pt, p.zo, p.getZ());
 
                 // ✅ 朝向插值：yRotO 是上一tick yaw
-                float yaw = Mth.rotLerp(pt, p.yRotO, p.getYRot());
+                float yaw = data.isYawLocked()
+                        ? data.getLockedYaw()
+                        : Mth.rotLerp(pt, p.yRotO, p.getYRot());
 
                 // ✅ 轻微膨胀，减少和模型/地面重叠导致的闪（按需调小/调大）
                 float eps = 0.0025f;

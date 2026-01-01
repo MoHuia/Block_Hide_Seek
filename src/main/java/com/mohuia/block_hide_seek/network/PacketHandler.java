@@ -12,6 +12,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -54,6 +55,11 @@ public class PacketHandler {
         //左键检查
 
         INSTANCE.registerMessage(id++, C2SAttackRaycast.class, C2SAttackRaycast::encode, C2SAttackRaycast::decode, C2SAttackRaycast::handle);
+        //OBB
+        // 【新增】Caps 锁定朝向：客户端->服务端
+        INSTANCE.registerMessage(id++, C2SSetYawLock.class, C2SSetYawLock::encode, C2SSetYawLock::decode, C2SSetYawLock::handle);
+// 【新增】Caps 锁定朝向：服务端->客户端（广播同步）
+        INSTANCE.registerMessage(id++, S2CSyncYawLock.class, S2CSyncYawLock::encode, S2CSyncYawLock::decode, S2CSyncYawLock::handle);
     }
 
     // ==========================================
@@ -496,6 +502,91 @@ public class PacketHandler {
                 // ✅ 服务端判断：游戏进行中才处理
                 com.mohuia.block_hide_seek.game.GameLoopManager.onSeekerLeftClickRaycast(player, msg.debugParticles);
             });
+            ctx.get().setPacketHandled(true);
+        }
+    }
+    public static class C2SSetYawLock {
+        private final boolean locked;
+        private final float yawDeg; // 锁定角度（度）
+
+        public C2SSetYawLock(boolean locked, float yawDeg) {
+            this.locked = locked;
+            this.yawDeg = yawDeg;
+        }
+
+        public static void encode(C2SSetYawLock msg, FriendlyByteBuf buf) {
+            buf.writeBoolean(msg.locked);
+            buf.writeFloat(msg.yawDeg);
+        }
+
+        public static C2SSetYawLock decode(FriendlyByteBuf buf) {
+            boolean locked = buf.readBoolean();
+            float yaw = buf.readFloat();
+            return new C2SSetYawLock(locked, yaw);
+        }
+
+        public static void handle(C2SSetYawLock msg, Supplier<NetworkEvent.Context> ctx) {
+            ctx.get().enqueueWork(() -> {
+                ServerPlayer player = ctx.get().getSender();
+                if (player == null) return;
+
+                // ✅ 安全：wrap 到 [-180, 180)
+                float yaw = Mth.wrapDegrees(msg.yawDeg);
+
+                player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+                    cap.setYawLocked(msg.locked);
+                    if (msg.locked) {
+                        cap.setLockedYaw(yaw);
+                    }
+
+                    // ✅ 广播给追踪者 + 自己：让别人也能渲染到正确朝向
+                    PacketHandler.INSTANCE.send(
+                            PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
+                            new S2CSyncYawLock(player.getId(), cap.isYawLocked(), cap.getLockedYaw())
+                    );
+                });
+            });
+            ctx.get().setPacketHandled(true);
+        }
+    }
+    public static class S2CSyncYawLock {
+        private final int entityId;
+        private final boolean locked;
+        private final float lockedYawDeg;
+
+        public S2CSyncYawLock(int entityId, boolean locked, float lockedYawDeg) {
+            this.entityId = entityId;
+            this.locked = locked;
+            this.lockedYawDeg = lockedYawDeg;
+        }
+
+        public static void encode(S2CSyncYawLock msg, FriendlyByteBuf buf) {
+            buf.writeInt(msg.entityId);
+            buf.writeBoolean(msg.locked);
+            buf.writeFloat(msg.lockedYawDeg);
+        }
+
+        public static S2CSyncYawLock decode(FriendlyByteBuf buf) {
+            int id = buf.readInt();
+            boolean locked = buf.readBoolean();
+            float yaw = buf.readFloat();
+            return new S2CSyncYawLock(id, locked, yaw);
+        }
+
+        public static void handle(S2CSyncYawLock msg, Supplier<NetworkEvent.Context> ctx) {
+            ctx.get().enqueueWork(() ->
+                    DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
+                        if (Minecraft.getInstance().level == null) return;
+
+                        Entity e = Minecraft.getInstance().level.getEntity(msg.entityId);
+                        if (e == null) return;
+
+                        e.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+                            cap.setYawLocked(msg.locked);
+                            cap.setLockedYaw(Mth.wrapDegrees(msg.lockedYawDeg));
+                        });
+                    })
+            );
             ctx.get().setPacketHandled(true);
         }
     }

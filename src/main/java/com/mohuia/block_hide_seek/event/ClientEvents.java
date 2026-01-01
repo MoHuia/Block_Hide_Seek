@@ -110,41 +110,37 @@ public class ClientEvents {
         poseStack.pushPose();
 
         Player player = event.getEntity();
-        float renderYaw;
+        float pt = event.getPartialTick();
 
-        // --- [修改点] 角度计算逻辑 ---
+        // 默认：跟随视线/头部（你想“指哪打哪”）
+        float renderYaw = player.getViewYRot(pt);
 
-        // 1. 如果开启了【方向锁定】(Caps Lock)，且渲染的是当前玩家自己
-        //    则强制使用锁定时的角度，无视当前鼠标朝向，实现“自由观察”
-        if (lockedBodyYaw != null && player == Minecraft.getInstance().player) {
-            renderYaw = lockedBodyYaw;
-        }
-        // 2. 否则，完全跟随【玩家准星/视线】(View Yaw)
-        //    这样操作更灵敏，指哪打哪，不再有身体转动的延迟
-        else {
-            float partialTick = event.getPartialTick();
-            renderYaw = player.getViewYRot(partialTick);
-        }
+        // ✅ 从 capability 读锁定状态（对自己/别人都生效）
+        final float[] yawBox = new float[]{renderYaw};
+        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+            if (cap.isYawLocked()) {
+                yawBox[0] = cap.getLockedYaw(); // 服务端同步过来的锁定yaw
+            } else {
+                // 不锁定时按你的需求：跟随视线
+                yawBox[0] = player.getViewYRot(pt);
+                // 如果你发现“别人视线不灵”，可以改成头部插值：
+                // yawBox[0] = Mth.rotLerp(pt, player.yHeadRotO, player.yHeadRot);
+            }
+        });
+        renderYaw = yawBox[0];
 
-        // 应用旋转 (注意：Minecraft 渲染旋转通常取反)
+        // 应用旋转（你这里取反是对的）
         poseStack.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-renderYaw));
 
         Level level = player.level();
 
-        // 根据方块类型分发渲染任务：
-
-        // A. 实体方块 (如：箱子、告示牌，通常用 Item 渲染更稳)
         if (state.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED) {
             renderEntityBlockAsItem(event, poseStack, state);
-        }
-        // B. 3D 物品模型 (如：梯子、火把、栅栏等，作为物品渲染位置更正)
-        else if (shouldRenderAsItem(state, level)) {
+        } else if (shouldRenderAsItem(state, level)) {
             ItemStack stack = new ItemStack(state.getBlock());
             BakedModel itemModel = Minecraft.getInstance().getItemRenderer().getModel(stack, level, null, 0);
             renderItemWithAutoCenter(event, poseStack, state, stack, itemModel);
-        }
-        // C. 普通方块 (如：石头、泥土，直接渲染 BlockModel)
-        else {
+        } else {
             renderBlockManually(event, poseStack, state);
         }
 

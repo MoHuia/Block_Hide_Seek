@@ -58,7 +58,7 @@ public class PacketHandler {
         //OBB
         // 【新增】Caps 锁定朝向：客户端->服务端
         INSTANCE.registerMessage(id++, C2SSetYawLock.class, C2SSetYawLock::encode, C2SSetYawLock::decode, C2SSetYawLock::handle);
-// 【新增】Caps 锁定朝向：服务端->客户端（广播同步）
+        // 【新增】Caps 锁定朝向：服务端->客户端（广播同步）
         INSTANCE.registerMessage(id++, S2CSyncYawLock.class, S2CSyncYawLock::encode, S2CSyncYawLock::decode, S2CSyncYawLock::handle);
     }
 
@@ -256,6 +256,7 @@ public class PacketHandler {
 
                                     // ✅ 虚拟 OBB 尺寸（不需要 refreshDimensions）
                                     cap.setAABBSize(msg.obbX, msg.obbY, msg.obbZ);
+                                    //cap.setYawLocked(msg.locked);//我添加的
                                 });
                             }
                         }

@@ -8,21 +8,23 @@ public interface IGameData {
     void setModelSize(float width, float height);
     float getModelWidth();
     float getModelHeight();
-    //问是否为抓捕者
+
+    // 这里继续沿用你已有字段名：实际含义改为 OBB 的 sizeX/sizeY/sizeZ（总长度）
+    float getAABBX();
+    float getAABBY();
+    float getAABBZ();
+    void setAABBSize(float x, float y, float z);
+
     boolean isSeeker();
-    //然后设置是不是抓捕者
     void setSeeker(boolean isSeeker);
-    //@Nullable表述这个返回值可能是空的，防止空指针崩溃
+
     @Nullable
     BlockState getDisguise();
-    //设置伪装
     void setDisguise(@Nullable BlockState state);
 
-    // --- 新增 ---
-    int getHitCount(); // 获取被打次数
-    void setHitCount(int count); // 设置被打次数
-    void incrementHitCount(); // 增加1次被打
+    int getHitCount();
+    void setHitCount(int count);
+    void incrementHitCount();
 
-    //把另一个IGameData的数据完全复制过来，因为玩家重生时原来的标签会被去掉，把旧的信息抄到新的上
     void copyFrom(IGameData other);
 }

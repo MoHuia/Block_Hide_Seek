@@ -15,6 +15,18 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.List;
 
 public class ClientModelHelper {
+    public static class SizeResult {
+        public final float obbX, obbY, obbZ;     // 真实尺寸，用于 OBB
+        public final float modelW, modelH;       // 策略尺寸，用于玩家碰撞
+
+        public SizeResult(float obbX, float obbY, float obbZ, float modelW, float modelH) {
+            this.obbX = obbX;
+            this.obbY = obbY;
+            this.obbZ = obbZ;
+            this.modelW = modelW;
+            this.modelH = modelH;
+        }
+    }
 
     // ==========================================
     // 1. 调试/指令逻辑 (用于 /bhs block)
@@ -64,25 +76,32 @@ public class ClientModelHelper {
     // 目标：获取方块的“物理最小尺寸”，方便钻洞
     // ==========================================
     public static float[] getOptimalSize(BlockState state) {
-        // 1. 扫描原始尺寸 (不记录详细日志)
-        float[] rawDims = scanRawDimensions(state, new ItemStack(state.getBlock()), null);
+        SizeResult r = getSizeResult(state);
+        return new float[]{r.modelW, r.modelH};
+    }
+    public static SizeResult getSizeResult(BlockState state) {
+        // 1) 真实尺寸：扫描模型得到 x,y,z
+        float[] raw = scanRawDimensions(state, new ItemStack(state.getBlock()), null);
+        float rawX = raw[0];
+        float rawY = raw[1];
+        float rawZ = raw[2];
 
-        float widthX = rawDims[0];
-        float heightY = rawDims[1];
-        float widthZ = rawDims[2];
+        // 2) 玩家碰撞策略：从真实尺寸导出 modelW/modelH（保持你现有策略）
+        float modelW = computeModelWidthStrategy(rawX, rawZ);
+        float modelH = rawY;
 
-        // 2. 游戏模式策略：取最小宽度 (为了碰撞箱更小，易于躲藏)
-        // 例如：玻璃板 (1.0 x 0.125)，取 0.125
+        float[] fixed = applySpecialCases(state, modelW, modelH, null);
+        // 假设 applySpecialCases 返回的是 [width,height]（你原来就这么用）
+        float finalW = fixed[0];
+        float finalH = fixed[1];
+
+        return new SizeResult(rawX, finalH, rawZ, finalW, finalH);
+    }
+
+    private static float computeModelWidthStrategy(float widthX, float widthZ) {
         float finalWidth = Math.min(widthX, widthZ);
-
-        // 3. 兜底逻辑：防止宽度过小导致无法被击中或渲染异常
-        // 0.2f 约为 3.2 像素，稍微比栅栏柱子的一半大一点
         if (finalWidth < 0.2f) finalWidth = 0.2f;
-
-        // 4. 应用特例 (床、门等)
-        float[] fixedSize = applySpecialCases(state, finalWidth, heightY, null);
-
-        return fixedSize;
+        return finalWidth;
     }
 
     // ==========================================
@@ -93,7 +112,7 @@ public class ClientModelHelper {
      * 核心扫描方法：返回 [WidthX, HeightY, WidthZ]
      * 如果扫描失败，返回默认 [1.0, 1.0, 1.0]
      */
-    private static float[] scanRawDimensions(BlockState state, ItemStack stack, StringBuilder log) {
+    public static float[] scanRawDimensions(BlockState state, ItemStack stack, StringBuilder log) {
         Minecraft mc = Minecraft.getInstance();
         BakedModel model = mc.getBlockRenderer().getBlockModel(state);
         BakedModel missing = mc.getModelManager().getMissingModel();
@@ -182,14 +201,14 @@ public class ClientModelHelper {
     private static float[] applySpecialCases(BlockState state, float width, float height, StringBuilder log) {
         if (state.is(BlockTags.BEDS) || state.getBlock() instanceof BedBlock) {
             if (log != null) log.append("ℹ 特例: 床 -> 2x0.56\n");
-            return new float[]{2.0f, 0.5625f};
+            return new float[]{1.0f, 0.5625f};
         }
         if (state.is(BlockTags.DOORS) || state.getBlock() instanceof DoorBlock) {
             if (log != null) log.append("ℹ 特例: 门 -> 1x2\n");
             // 门在游戏中比较特殊，为了能过门，宽度给 0.5 比较合适，但视觉上是 1.0
             // 这里我们保持 SelectScreen 的逻辑，门虽然视觉宽，但物理碰撞箱建议给小一点(如果你想让门能钻洞)
             // 但标准做法是:
-            return new float[]{1.0f, 2.0f};
+            return new float[]{0.2f, 2.0f};
         }
         if (state.is(BlockTags.TALL_FLOWERS) || state.getBlock() instanceof DoublePlantBlock) {
             if (log != null) log.append("ℹ 特例: 双格植物 -> h=2.0\n");

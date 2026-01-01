@@ -505,15 +505,14 @@ public class SelectScreen extends Screen {
     }
 
     private void selectBlock(BlockState state, int index) {
-        // 1. 【核心新增】计算最佳尺寸
-        // 注意：这里需要你确保 ClientModelHelper 里有 getOptimalSize public static 方法
-        // 如果没有，请参考上一条回答补上。
-        float[] size = com.mohuia.block_hide_seek.client.ClientModelHelper.getOptimalSize(state);
+        // 1) 一次计算拿到：真实尺寸(OBB) + 策略尺寸(玩家碰撞)
+        ClientModelHelper.SizeResult r = ClientModelHelper.getSizeResult(state);
 
-        // 2. 发送带有尺寸的包
-        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSelectBlock(state, size[0], size[1]));
+        // 2) 发送带有：伪装方块 + 玩家尺寸(modelW/H) + OBB真实尺寸(x/y/z)
+        PacketHandler.INSTANCE.sendToServer(
+                new PacketHandler.C2SSelectBlock(state, r.modelW, r.modelH, r.obbX, r.obbY, r.obbZ)
+        );
 
-        // [修复] 去掉 .value() (保持你原有的修复)
         Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_LOOM_TAKE_RESULT, 1.0F));
         Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.PLAYER_ATTACK_SWEEP, 1.2F, 0.5F));
 

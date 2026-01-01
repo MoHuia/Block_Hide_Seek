@@ -12,6 +12,9 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.fml.DistExecutor;
+import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 
 @Mod(BlockHideSeek.MODID)
 public class BlockHideSeek {
@@ -29,6 +32,8 @@ public class BlockHideSeek {
 
         // 3. 将自己注册到 Forge 事件总线 (用于监听指令注册、服务器Tick等)
         MinecraftForge.EVENT_BUS.register(this);
+
+        modEventBus.addListener(this::clientSetup);
     }
 
     public void InitAll(IEventBus bus) {
@@ -50,9 +55,16 @@ public class BlockHideSeek {
             PacketHandler.register(); // <--- 注册网络包
         });
     }
+    private void clientSetup(final FMLClientSetupEvent event) {
+        // 只在客户端注册渲染监听器
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
+            net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new com.mohuia.block_hide_seek.client.ObbDebugRender());
+        });
+    }
 
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         BlockHuntCommand.register(event.getDispatcher()); // <--- 注册指令
     }
+
 }

@@ -3,14 +3,15 @@ package com.mohuia.block_hide_seek.data;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 
-// implements IGameData: 意思是"我承诺实现 IGameData 里规定的所有功能"。
 public class GameDataImp implements IGameData {
 
-    // 新增：存取模型尺寸
-    private float modelWidth = 0.5f; // 默认值
-    private float modelHeight = 1.0f; // 默认值
+    private float modelWidth = 0.5f;
+    private float modelHeight = 1.0f;
 
-    // ... 原有方法 ...
+    // 现在这三个当成 OBB 的 sizeX/sizeY/sizeZ（总长度）
+    private float AABBx = 1.0f;
+    private float AABBy = 1.0f;
+    private float AABBz = 1.0f;
 
     @Override
     public void setModelSize(float width, float height) {
@@ -27,23 +28,41 @@ public class GameDataImp implements IGameData {
     public float getModelHeight() {
         return modelHeight;
     }
-    // private: 私有的。意思是只有这个类自己能直接改这俩变量。
-    // 别人想改？必须通过下面的 public 方法（setSeeker 等）。
-    // 这叫"封装"，防止别人乱改数据导致出错。
-    private boolean isSeeker = false; // 默认不是抓捕者
-    private BlockState disguise = null; // 默认没有伪装（null）
+
+    @Override
+    public float getAABBX() {
+        return AABBx;
+    }
+
+    @Override
+    public float getAABBY() {
+        return AABBy;
+    }
+
+    @Override
+    public float getAABBZ() {
+        return AABBz;
+    }
+
+    @Override
+    public void setAABBSize(float x, float y, float z) {
+        this.AABBx = x;
+        this.AABBy = y;
+        this.AABBz = z;
+    }
+
+    private boolean isSeeker = false;
+    private BlockState disguise = null;
     private int hitCount = 0;
 
-    // @Override: 告诉 Java 编译器，下面这个方法是接口里规定好的，我正在实现它。
-    // 如果你拼写错了方法名，编译器会报错提醒你。
     @Override
     public boolean isSeeker() {
-        return this.isSeeker; // 返回上面存的变量
+        return this.isSeeker;
     }
 
     @Override
     public void setSeeker(boolean isSeeker) {
-        this.isSeeker = isSeeker; // 把外部传进来的值赋给上面的变量
+        this.isSeeker = isSeeker;
     }
 
     @Override
@@ -71,12 +90,17 @@ public class GameDataImp implements IGameData {
         this.hitCount++;
     }
 
-    // 实现复制逻辑
     @Override
     public void copyFrom(IGameData other) {
-        // 把 other 里的数据拿出来，存到 this (自己) 里面
         this.isSeeker = other.isSeeker();
         this.disguise = other.getDisguise();
         this.hitCount = other.getHitCount();
+
+        this.modelWidth = other.getModelWidth();
+        this.modelHeight = other.getModelHeight();
+
+        this.AABBx = other.getAABBX();
+        this.AABBy = other.getAABBY();
+        this.AABBz = other.getAABBZ();
     }
 }

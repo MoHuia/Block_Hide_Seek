@@ -48,9 +48,6 @@ public class PacketHandler {
         // 【新增】静默更新广播
         INSTANCE.registerMessage(id++, S2CUpdateConfigGui.class, S2CUpdateConfigGui::encode, S2CUpdateConfigGui::decode, S2CUpdateConfigGui::handle);
 
-        // 【新增】静默更新广播
-        INSTANCE.registerMessage(id++, S2CUpdateConfigGui.class, S2CUpdateConfigGui::encode, S2CUpdateConfigGui::decode, S2CUpdateConfigGui::handle);
-
         // 【新增】模型尺寸请求与响应 (用于 /bhs block 调试)
         INSTANCE.registerMessage(id++, S2CRequestModelData.class, S2CRequestModelData::encode, S2CRequestModelData::decode, S2CRequestModelData::handle);
         INSTANCE.registerMessage(id++, C2SModelSizeResponse.class, C2SModelSizeResponse::encode, C2SModelSizeResponse::decode, C2SModelSizeResponse::handle);
@@ -84,43 +81,83 @@ public class PacketHandler {
     // 1. 客户端选方块 -> 服务端 (带尺寸)
     public static class C2SSelectBlock {
         private final BlockState selection;
-        private final float width;
-        private final float height;
+        private final float width;   // modelW
+        private final float height;  // modelH
 
-        // 构造函数
-        public C2SSelectBlock(BlockState s, float width, float height) {
+        // 新增：OBB真实尺寸
+        private final float obbX;
+        private final float obbY;
+        private final float obbZ;
+
+        // 新构造：带 OBB
+        public C2SSelectBlock(BlockState s, float width, float height, float obbX, float obbY, float obbZ) {
             this.selection = s;
             this.width = width;
             this.height = height;
+            this.obbX = obbX;
+            this.obbY = obbY;
+            this.obbZ = obbZ;
         }
 
-        // 编码
+        // 旧构造保留兼容：没传 OBB 时，用宽高推一个默认（比如 x=z=width, y=height）
+        public C2SSelectBlock(BlockState s, float width, float height) {
+            this(s, width, height, width, height, width);
+        }
+
         public static void encode(C2SSelectBlock msg, FriendlyByteBuf buf) {
             buf.writeInt(Block.getId(msg.selection));
             buf.writeFloat(msg.width);
             buf.writeFloat(msg.height);
+
+            // 追加写入 OBB
+            buf.writeFloat(msg.obbX);
+            buf.writeFloat(msg.obbY);
+            buf.writeFloat(msg.obbZ);
         }
 
-        // 解码
         public static C2SSelectBlock decode(FriendlyByteBuf buf) {
-            return new C2SSelectBlock(Block.stateById(buf.readInt()), buf.readFloat(), buf.readFloat());
+            BlockState s = Block.stateById(buf.readInt());
+            float w = buf.readFloat();
+            float h = buf.readFloat();
+
+            // 兼容：如果未来你怕老客户端/老包，会需要判断剩余字节。
+            // 但你现在是同一mod版本一起更新，直接读即可：
+            float ox = buf.readFloat();
+            float oy = buf.readFloat();
+            float oz = buf.readFloat();
+
+            return new C2SSelectBlock(s, w, h, ox, oy, oz);
         }
 
-        // 处理
         public static void handle(C2SSelectBlock msg, Supplier<NetworkEvent.Context> ctx) {
             ctx.get().enqueueWork(() -> {
                 ServerPlayer player = ctx.get().getSender();
                 if (player != null) {
                     player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-                        // 服务端保存客户端传来的尺寸
                         cap.setDisguise(msg.selection);
+
+                        // 玩家真实碰撞尺寸
                         cap.setModelSize(msg.width, msg.height);
 
-                        // 同步给所有人 (包含尺寸)
-                        PacketHandler.INSTANCE.send(PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
-                                new S2CSyncGameData(player.getId(), cap.isSeeker(), msg.selection, msg.width, msg.height));
+                        // ✅ 虚拟 OBB 尺寸（真实尺寸）
+                        cap.setAABBSize(msg.obbX, msg.obbY, msg.obbZ);
 
-                        player.refreshDimensions(); // 立即刷新碰撞箱
+                        // 同步给所有人：除了原来的 modelW/H，也同步 OBB
+                        PacketHandler.INSTANCE.send(
+                                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
+                                new S2CSyncGameData(
+                                        player.getId(),
+                                        cap.isSeeker(),
+                                        msg.selection,
+                                        msg.width,
+                                        msg.height,
+                                        msg.obbX,
+                                        msg.obbY,
+                                        msg.obbZ
+                                )
+                        );
+
+                        player.refreshDimensions();
                     });
                 }
             });
@@ -128,35 +165,54 @@ public class PacketHandler {
         }
     }
 
-    // 2. 服务端 -> 所有客户端 (同步尺寸)
     public static class S2CSyncGameData {
         private final int entityId;
         private final boolean isSeeker;
         private final BlockState block;
-        private final float width;  // 移除 = 0.5f
-        private final float height; // 移除 = 1.0f
 
-        // 构造函数
-        public S2CSyncGameData(int entityId, boolean isSeeker, BlockState block, float width, float height) {
+        private final float width;   // modelW
+        private final float height;  // modelH
+
+        // 新增：OBB真实尺寸
+        private final float obbX;
+        private final float obbY;
+        private final float obbZ;
+
+        // 新构造
+        public S2CSyncGameData(int entityId, boolean isSeeker, BlockState block,
+                               float width, float height,
+                               float obbX, float obbY, float obbZ) {
             this.entityId = entityId;
             this.isSeeker = isSeeker;
             this.block = block;
             this.width = width;
             this.height = height;
+            this.obbX = obbX;
+            this.obbY = obbY;
+            this.obbZ = obbZ;
         }
 
-        // 旧的构造函数重载 (保持兼容性可选，或者直接删掉只用新的)
-        // 为了避免报错，建议把所有调用旧构造函数的地方都改掉，或者保留一个默认值的重载
+        // 旧构造兼容（如果旧地方还在用）
+        public S2CSyncGameData(int entityId, boolean isSeeker, BlockState block, float width, float height) {
+            this(entityId, isSeeker, block, width, height, width, height, width);
+        }
+
         public S2CSyncGameData(int entityId, boolean isSeeker, BlockState block) {
-            this(entityId, isSeeker, block, 0.5f, 1.0f);
+            this(entityId, isSeeker, block, 0.5f, 1.0f, 0.5f, 1.0f, 0.5f);
         }
 
         public static void encode(S2CSyncGameData msg, FriendlyByteBuf buf) {
             buf.writeInt(msg.entityId);
             buf.writeBoolean(msg.isSeeker);
             buf.writeInt(msg.block == null ? -1 : Block.getId(msg.block));
+
             buf.writeFloat(msg.width);
             buf.writeFloat(msg.height);
+
+            // 新增
+            buf.writeFloat(msg.obbX);
+            buf.writeFloat(msg.obbY);
+            buf.writeFloat(msg.obbZ);
         }
 
         public static S2CSyncGameData decode(FriendlyByteBuf buf) {
@@ -164,9 +220,15 @@ public class PacketHandler {
             boolean seeker = buf.readBoolean();
             int blockId = buf.readInt();
             BlockState state = blockId == -1 ? null : Block.stateById(blockId);
+
             float w = buf.readFloat();
             float h = buf.readFloat();
-            return new S2CSyncGameData(id, seeker, state, w, h);
+
+            float ox = buf.readFloat();
+            float oy = buf.readFloat();
+            float oz = buf.readFloat();
+
+            return new S2CSyncGameData(id, seeker, state, w, h, ox, oy, oz);
         }
 
         public static void handle(S2CSyncGameData msg, Supplier<NetworkEvent.Context> ctx) {
@@ -178,8 +240,13 @@ public class PacketHandler {
                                 entity.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
                                     cap.setSeeker(msg.isSeeker);
                                     cap.setDisguise(msg.block);
-                                    cap.setModelSize(msg.width, msg.height); // 客户端同步数据
+
+                                    // 玩家真实碰撞尺寸
+                                    cap.setModelSize(msg.width, msg.height);
                                     entity.refreshDimensions();
+
+                                    // ✅ 虚拟 OBB 尺寸（不需要 refreshDimensions）
+                                    cap.setAABBSize(msg.obbX, msg.obbY, msg.obbZ);
                                 });
                             }
                         }
@@ -394,9 +461,8 @@ public class PacketHandler {
                 }
             });
             ctx.get().setPacketHandled(true);
+
         }
     }
-    
 
-    
 }

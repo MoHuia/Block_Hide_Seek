@@ -1,5 +1,7 @@
 package com.mohuia.block_hide_seek.game;
 
+import com.mohuia.block_hide_seek.hitbox.ObbRaycast;
+import com.mohuia.block_hide_seek.hitbox.ObbUtil;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
 import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
@@ -19,6 +21,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.network.PacketDistributor;
 
@@ -190,14 +194,38 @@ public class GameLoopManager {
         if (!isGameRunning) return;
 
         attacker.getCapability(GameDataProvider.CAP).ifPresent(atCap -> {
-            if (atCap.isSeeker()) {
-                victim.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
-                    if (!vicCap.isSeeker()) {
-                        handleHiderHit(attacker, victim, vicCap);
-                    }
-                });
-            }
+            if (!atCap.isSeeker()) return;
+
+            victim.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
+                if (vicCap.isSeeker()) return;
+
+                // ✅ 只有命中 OBB 才算
+                boolean obbHit = isHitVictimObb(attacker, victim);
+                if (!obbHit) return;
+
+                handleHiderHit(attacker, victim, vicCap);
+            });
         });
+    }
+
+    private static boolean isHitVictimObb(ServerPlayer attacker, ServerPlayer victim) {
+        // 射线起点：攻击者眼睛位置
+        Vec3 origin = attacker.getEyePosition();
+
+        // 射线方向：攻击者视线方向（归一化）
+        Vec3 dir = attacker.getLookAngle().normalize();
+
+        // 攻击距离：优先用 Forge Reach Attribute（有则更准），没有就用保守值
+        double reach = 3.5; // 生存默认近战大概 3.0 左右，这里给一点余量
+        try {
+            var attr = attacker.getAttribute(ForgeMod.ENTITY_REACH.get());
+            if (attr != null) reach = Math.max(reach, attr.getValue());
+        } catch (Throwable ignored) {}
+
+        double finalReach = reach;
+        return ObbUtil.getPlayerObb(victim)
+                .map(obb -> ObbRaycast.hit(origin, dir, finalReach, obb))
+                .orElse(false);
     }
 
     private static void handleHiderHit(ServerPlayer attacker, ServerPlayer victim, com.mohuia.block_hide_seek.data.IGameData vicCap) {

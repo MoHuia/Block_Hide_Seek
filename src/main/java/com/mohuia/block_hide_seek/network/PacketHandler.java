@@ -2,6 +2,7 @@ package com.mohuia.block_hide_seek.network;
 
 import com.mohuia.block_hide_seek.BlockHideSeek;
 import com.mohuia.block_hide_seek.client.ClientHooks;
+import com.mohuia.block_hide_seek.client.ClientModelHelper;
 import com.mohuia.block_hide_seek.client.ConfigScreen;
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.world.BlockWhitelistData;
@@ -46,6 +47,13 @@ public class PacketHandler {
 
         // 【新增】静默更新广播
         INSTANCE.registerMessage(id++, S2CUpdateConfigGui.class, S2CUpdateConfigGui::encode, S2CUpdateConfigGui::decode, S2CUpdateConfigGui::handle);
+
+        // 【新增】静默更新广播
+        INSTANCE.registerMessage(id++, S2CUpdateConfigGui.class, S2CUpdateConfigGui::encode, S2CUpdateConfigGui::decode, S2CUpdateConfigGui::handle);
+
+        // 【新增】模型尺寸请求与响应 (用于 /bhs block 调试)
+        INSTANCE.registerMessage(id++, S2CRequestModelData.class, S2CRequestModelData::encode, S2CRequestModelData::decode, S2CRequestModelData::handle);
+        INSTANCE.registerMessage(id++, C2SModelSizeResponse.class, C2SModelSizeResponse::encode, C2SModelSizeResponse::decode, C2SModelSizeResponse::handle);
     }
 
     // ==========================================
@@ -73,24 +81,46 @@ public class PacketHandler {
         }
     }
 
+    // 1. 客户端选方块 -> 服务端 (带尺寸)
     public static class C2SSelectBlock {
         private final BlockState selection;
-        public C2SSelectBlock(BlockState s) { this.selection = s; }
+        private final float width;
+        private final float height;
+
+        // 构造函数
+        public C2SSelectBlock(BlockState s, float width, float height) {
+            this.selection = s;
+            this.width = width;
+            this.height = height;
+        }
+
+        // 编码
         public static void encode(C2SSelectBlock msg, FriendlyByteBuf buf) {
             buf.writeInt(Block.getId(msg.selection));
+            buf.writeFloat(msg.width);
+            buf.writeFloat(msg.height);
         }
+
+        // 解码
         public static C2SSelectBlock decode(FriendlyByteBuf buf) {
-            return new C2SSelectBlock(Block.stateById(buf.readInt()));
+            return new C2SSelectBlock(Block.stateById(buf.readInt()), buf.readFloat(), buf.readFloat());
         }
+
+        // 处理
         public static void handle(C2SSelectBlock msg, Supplier<NetworkEvent.Context> ctx) {
             ctx.get().enqueueWork(() -> {
                 ServerPlayer player = ctx.get().getSender();
                 if (player != null) {
                     player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+                        // 服务端保存客户端传来的尺寸
                         cap.setDisguise(msg.selection);
+                        cap.setModelSize(msg.width, msg.height);
+
+                        // 同步给所有人 (包含尺寸)
                         PacketHandler.INSTANCE.send(PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
-                                new S2CSyncGameData(player.getId(), cap.isSeeker(), msg.selection));
-                        player.refreshDimensions();
+                                new S2CSyncGameData(player.getId(), cap.isSeeker(), msg.selection, msg.width, msg.height));
+
+                        player.refreshDimensions(); // 立即刷新碰撞箱
                     });
                 }
             });
@@ -98,27 +128,45 @@ public class PacketHandler {
         }
     }
 
+    // 2. 服务端 -> 所有客户端 (同步尺寸)
     public static class S2CSyncGameData {
         private final int entityId;
         private final boolean isSeeker;
         private final BlockState block;
+        private final float width;  // 移除 = 0.5f
+        private final float height; // 移除 = 1.0f
 
-        public S2CSyncGameData(int entityId, boolean isSeeker, BlockState block) {
+        // 构造函数
+        public S2CSyncGameData(int entityId, boolean isSeeker, BlockState block, float width, float height) {
             this.entityId = entityId;
             this.isSeeker = isSeeker;
             this.block = block;
+            this.width = width;
+            this.height = height;
         }
+
+        // 旧的构造函数重载 (保持兼容性可选，或者直接删掉只用新的)
+        // 为了避免报错，建议把所有调用旧构造函数的地方都改掉，或者保留一个默认值的重载
+        public S2CSyncGameData(int entityId, boolean isSeeker, BlockState block) {
+            this(entityId, isSeeker, block, 0.5f, 1.0f);
+        }
+
         public static void encode(S2CSyncGameData msg, FriendlyByteBuf buf) {
             buf.writeInt(msg.entityId);
             buf.writeBoolean(msg.isSeeker);
             buf.writeInt(msg.block == null ? -1 : Block.getId(msg.block));
+            buf.writeFloat(msg.width);
+            buf.writeFloat(msg.height);
         }
+
         public static S2CSyncGameData decode(FriendlyByteBuf buf) {
             int id = buf.readInt();
             boolean seeker = buf.readBoolean();
             int blockId = buf.readInt();
             BlockState state = blockId == -1 ? null : Block.stateById(blockId);
-            return new S2CSyncGameData(id, seeker, state);
+            float w = buf.readFloat();
+            float h = buf.readFloat();
+            return new S2CSyncGameData(id, seeker, state, w, h);
         }
 
         public static void handle(S2CSyncGameData msg, Supplier<NetworkEvent.Context> ctx) {
@@ -130,6 +178,7 @@ public class PacketHandler {
                                 entity.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
                                     cap.setSeeker(msg.isSeeker);
                                     cap.setDisguise(msg.block);
+                                    cap.setModelSize(msg.width, msg.height); // 客户端同步数据
                                     entity.refreshDimensions();
                                 });
                             }
@@ -139,7 +188,6 @@ public class PacketHandler {
             ctx.get().setPacketHandled(true);
         }
     }
-
     // ==========================================
     //            配置白名单逻辑
     // ==========================================
@@ -280,4 +328,75 @@ public class PacketHandler {
             ctx.get().setPacketHandled(true);
         }
     }
+    // ==========================================
+    //            模型调试逻辑 (调试用)
+    // ==========================================
+
+    // 1. 服务端 -> 客户端：请求计算当前手持物品的模型尺寸
+    public static class S2CRequestModelData {
+        public S2CRequestModelData() {}
+        public static void encode(S2CRequestModelData msg, FriendlyByteBuf buf) {}
+        public static S2CRequestModelData decode(FriendlyByteBuf buf) { return new S2CRequestModelData(); }
+        public static void handle(S2CRequestModelData msg, Supplier<NetworkEvent.Context> ctx) {
+            ctx.get().enqueueWork(() ->
+                    // 安全地调用客户端代码，避免服务端崩溃
+                    DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () ->
+                            ClientModelHelper.handleRequest())
+            );
+            ctx.get().setPacketHandled(true);
+        }
+    }
+
+    // 2. 客户端 -> 服务端：返回计算好的尺寸 + 调试日志
+    public static class C2SModelSizeResponse {
+        private final float width;
+        private final float height;
+        private final String blockName;
+        private final String debugLog; // 【新增】调试日志
+
+        public C2SModelSizeResponse(float width, float height, String blockName, String debugLog) {
+            this.width = width;
+            this.height = height;
+            this.blockName = blockName;
+            this.debugLog = debugLog;
+        }
+
+        public static void encode(C2SModelSizeResponse msg, FriendlyByteBuf buf) {
+            buf.writeFloat(msg.width);
+            buf.writeFloat(msg.height);
+            buf.writeUtf(msg.blockName);
+            buf.writeUtf(msg.debugLog); // 【新增】
+        }
+
+        public static C2SModelSizeResponse decode(FriendlyByteBuf buf) {
+            return new C2SModelSizeResponse(buf.readFloat(), buf.readFloat(), buf.readUtf(), buf.readUtf());
+        }
+
+        public static void handle(C2SModelSizeResponse msg, Supplier<NetworkEvent.Context> ctx) {
+            ctx.get().enqueueWork(() -> {
+                ServerPlayer player = ctx.get().getSender();
+                if (player != null) {
+                    // 1. 打印详细调试日志
+                    player.sendSystemMessage(Component.literal("§e=== 模型分析报告 ==="));
+                    player.sendSystemMessage(Component.literal("§7方块: " + msg.blockName));
+
+                    // 将日志按行打印
+                    String[] logs = msg.debugLog.split("\n");
+                    for (String log : logs) {
+                        player.sendSystemMessage(Component.literal("§8" + log));
+                    }
+
+                    player.sendSystemMessage(Component.literal(String.format("§b[最终结果] 宽: %.2f | 高: %.2f", msg.width, msg.height)));
+                    player.sendSystemMessage(Component.literal("§e======================"));
+
+                    // 2. 生成实体建议
+                    player.sendSystemMessage(Component.literal("📋 建议代码: EntityDimensions.fixed(" + msg.width + "F, " + msg.height + "F)"));
+                }
+            });
+            ctx.get().setPacketHandled(true);
+        }
+    }
+    
+
+    
 }

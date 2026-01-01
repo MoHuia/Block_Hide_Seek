@@ -5,6 +5,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 
 public interface IGameData {
+    void setModelSize(float width, float height);
+    float getModelWidth();
+    float getModelHeight();
     //问是否为抓捕者
     boolean isSeeker();
     //然后设置是不是抓捕者

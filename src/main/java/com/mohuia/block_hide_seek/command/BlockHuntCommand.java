@@ -5,13 +5,13 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.context.CommandContext;
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.network.PacketHandler;
-import net.minecraft.ChatFormatting; // 引入颜色格式
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.InteractionHand; // 引入主手
-import net.minecraft.world.item.BlockItem; // 引入方块物品
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
@@ -35,12 +35,29 @@ public class BlockHuntCommand {
                     );
                     return 1;
                 }))
-                // 【新增】设置伪装为手中方块的指令
+                // 设置伪装为手中方块的指令
                 .then(Commands.literal("sethand").executes(BlockHuntCommand::setDisguiseToHand))
+                // 【新增】调试指令：分析手中方块模型并回传尺寸
+                .then(Commands.literal("block").executes(BlockHuntCommand::spawnDebugEntityFromHand))
         );
     }
 
-    // --- 新增：把伪装设置为手中方块 ---
+    // --- 新增：发送请求包给客户端进行模型分析 ---
+    private static int spawnDebugEntityFromHand(CommandContext<CommandSourceStack> ctx) {
+        if (ctx.getSource().getEntity() instanceof ServerPlayer player) {
+            // 发送请求包给客户端，让客户端去算 BakedModel 的顶点
+            PacketHandler.INSTANCE.send(
+                    PacketDistributor.PLAYER.with(() -> player),
+                    new PacketHandler.S2CRequestModelData()
+            );
+
+            player.sendSystemMessage(Component.literal("📡 已发送模型分析请求... 请留意聊天栏返回的数据")
+                    .withStyle(ChatFormatting.YELLOW));
+        }
+        return 1;
+    }
+
+    // --- 把伪装设置为手中方块 ---
     private static int setDisguiseToHand(CommandContext<CommandSourceStack> ctx) {
         if (ctx.getSource().getEntity() instanceof ServerPlayer player) {
             // 1. 获取主手物品
@@ -67,14 +84,12 @@ public class BlockHuntCommand {
                             .withStyle(ChatFormatting.GREEN));
                 });
             } else {
-                // 如果手里拿的不是方块（比如剑、空气）
+                // 如果手里拿的不是方块
                 player.sendSystemMessage(Component.literal("❌ 你手里拿的不是方块！").withStyle(ChatFormatting.RED));
             }
         }
         return 1;
     }
-
-    // ... 下面的 startGame, setupSeeker, setupHider, pickRandomBlocks 等方法保持不变 ...
 
     private static int startGame(CommandContext<CommandSourceStack> ctx) {
         if (ctx.getSource().getEntity() instanceof ServerPlayer player) {
@@ -83,7 +98,7 @@ public class BlockHuntCommand {
         return 1;
     }
 
-    // 省略了 setupSeeker 和 setupHider 的代码，因为你原文件里已经有了，不需要改动
+    // 辅助方法：随机挑选方块 (你的逻辑里似乎没用到这个作为指令，保留即可)
     private static List<BlockState> pickRandomBlocks(List<BlockState> source, int count) {
         List<BlockState> copy = new ArrayList<>(source);
         Collections.shuffle(copy);

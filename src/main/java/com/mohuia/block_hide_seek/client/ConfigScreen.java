@@ -45,7 +45,8 @@ public class ConfigScreen extends Screen {
 
     public ConfigScreen(List<BlockState> whitelist) {
         super(Component.literal("配置躲藏方块"));
-        this.whitelist = whitelist;
+        // 强制包装成一个新的 ArrayList，确保它是可变的，防止 crash
+        this.whitelist = new java.util.ArrayList<>(whitelist);
     }
 
     @Override
@@ -341,5 +342,11 @@ public class ConfigScreen extends Screen {
             int textColor = this.active ? 0xFFFFFF : 0xA0A0A0;
             gfx.drawCenteredString(font, getMessage(), getX() + width / 2, getY() + (height - 8) / 2, textColor);
         }
+    }
+
+    // 【新增】用于接收服务端广播的实时更新
+    public void updateWhitelist(List<BlockState> newList) {
+        this.whitelist.clear();
+        this.whitelist.addAll(newList);
     }
 }

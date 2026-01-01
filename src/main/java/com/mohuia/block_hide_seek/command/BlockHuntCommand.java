@@ -3,14 +3,17 @@ package com.mohuia.block_hide_seek.command;
 import com.mohuia.block_hide_seek.game.WinnerType;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.context.CommandContext;
-import com.mohuia.block_hide_seek.data.GameDataProvider; // 导入数据能力
+import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.network.PacketHandler;
-import com.mohuia.block_hide_seek.world.BlockWhitelistData;
+import net.minecraft.ChatFormatting; // 引入颜色格式
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.InteractionHand; // 引入主手
+import net.minecraft.world.item.BlockItem; // 引入方块物品
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.network.PacketDistributor;
 
@@ -32,9 +35,46 @@ public class BlockHuntCommand {
                     );
                     return 1;
                 }))
+                // 【新增】设置伪装为手中方块的指令
+                .then(Commands.literal("sethand").executes(BlockHuntCommand::setDisguiseToHand))
         );
     }
 
+    // --- 新增：把伪装设置为手中方块 ---
+    private static int setDisguiseToHand(CommandContext<CommandSourceStack> ctx) {
+        if (ctx.getSource().getEntity() instanceof ServerPlayer player) {
+            // 1. 获取主手物品
+            ItemStack heldItem = player.getItemInHand(InteractionHand.MAIN_HAND);
+            Item item = heldItem.getItem();
+
+            // 2. 判断是否是方块
+            if (item instanceof BlockItem blockItem) {
+                BlockState state = blockItem.getBlock().defaultBlockState();
+
+                // 3. 应用伪装逻辑
+                player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+                    cap.setSeeker(false); // 强制设为躲藏者
+                    cap.setDisguise(state); // 设置伪装
+
+                    // 4. 同步给所有人
+                    PacketHandler.INSTANCE.send(
+                            PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
+                            new PacketHandler.S2CSyncGameData(player.getId(), false, state)
+                    );
+
+                    // 5. 反馈消息
+                    player.sendSystemMessage(Component.literal("✅ 已将伪装设置为: " + state.getBlock().getName().getString())
+                            .withStyle(ChatFormatting.GREEN));
+                });
+            } else {
+                // 如果手里拿的不是方块（比如剑、空气）
+                player.sendSystemMessage(Component.literal("❌ 你手里拿的不是方块！").withStyle(ChatFormatting.RED));
+            }
+        }
+        return 1;
+    }
+
+    // ... 下面的 startGame, setupSeeker, setupHider, pickRandomBlocks 等方法保持不变 ...
 
     private static int startGame(CommandContext<CommandSourceStack> ctx) {
         if (ctx.getSource().getEntity() instanceof ServerPlayer player) {
@@ -43,50 +83,7 @@ public class BlockHuntCommand {
         return 1;
     }
 
-    // --- 设置抓捕者逻辑 ---
-    private static void setupSeeker(ServerPlayer player) {
-        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-            // 1. 修改数据
-            cap.setSeeker(true);
-            cap.setDisguise(null); // 抓捕者不能有伪装
-
-            // 2. 同步数据给所有人 (让大家知道他是抓捕者，且没有伪装)
-            PacketHandler.INSTANCE.send(
-                    PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
-                    new PacketHandler.S2CSyncGameData(player.getId(), true, null)
-            );
-        });
-
-        // 3. 发送提示消息
-//        player.sendSystemMessage(Component.literal("⚔️ §c你被选中成为了抓捕者！§r\n找出所有伪装的方块！"));
-//        player.sendSystemMessage(Component.literal("§7(等待躲藏者选择方块...)"));
-
-        // 4. (可选) 给抓捕者发点装备，或者清空背包
-        // player.getInventory().clearOrCountMatchingItems(p -> true, -1, player.inventoryMenu.getCraftSlots());
-        // player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_SWORD));
-    }
-
-    // --- 设置躲藏者逻辑 ---
-    private static void setupHider(ServerPlayer player, List<BlockState> fullWhitelist) {
-        // 1. 确保重置状态 (防止上一局是抓捕者，这一局变成躲藏者时状态没变)
-        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-            cap.setSeeker(false);
-            // 这里不需要 setDisguise，因为等下选完方块会自动设置
-        });
-
-        // 2. 随机抽取 4 个选项
-        List<BlockState> randomOptions = pickRandomBlocks(fullWhitelist, 4);
-
-        // 3. 发送选择界面包
-        PacketHandler.INSTANCE.send(
-                PacketDistributor.PLAYER.with(() -> player),
-                new PacketHandler.S2COpenSelectScreen(randomOptions)
-        );
-
-        // 4. 发送提示
-//        player.sendSystemMessage(Component.literal("🥸 §a你是躲藏者！§r\n请尽快在屏幕上选择你的伪装！"));
-    }
-
+    // 省略了 setupSeeker 和 setupHider 的代码，因为你原文件里已经有了，不需要改动
     private static List<BlockState> pickRandomBlocks(List<BlockState> source, int count) {
         List<BlockState> copy = new ArrayList<>(source);
         Collections.shuffle(copy);

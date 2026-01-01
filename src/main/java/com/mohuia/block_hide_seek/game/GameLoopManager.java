@@ -36,6 +36,9 @@ public class GameLoopManager {
 
     private static boolean isGameRunning = false;
     private static int ticksRemaining = 0;
+    private static final int FAKE_IFRAMES_TICKS = 10;     // 10 tick = 0.5s
+    private static final int FAKE_HURT_ANIM_TICKS = 10;
+    private static final float FAKE_KNOCKBACK = 0.4F;
 
     /**
      * ✅ 供网络包判断用
@@ -235,7 +238,7 @@ public class GameLoopManager {
                 if (isInIFrames(target.victim)) return;
 
                 // ✅ 先模拟受击效果（击退+动画+无敌帧）
-                simulateVanillaLikeHit(attacker, target.victim, dir);
+                simulateVanillaLikeHit(attacker, target.victim);
 
                 // ✅ 再扣次数（这样无敌帧内不会瞬间耗完）
                 handleHiderHit(attacker, target.victim, vicCap);
@@ -317,13 +320,6 @@ public class GameLoopManager {
         }
     }
 
-    // ================================
-// ✅ 新增：受击模拟（击退 + 无敌帧 + 动画）
-// ================================
-    private static final int FAKE_IFRAMES_TICKS = 10;     // 小无敌帧：10 tick = 0.5s
-    private static final int FAKE_HURT_ANIM_TICKS = 10;   // 受击红光/抖动时长
-    private static final float FAKE_KNOCKBACK = 0.4F;     // 原版近战击退大概就是这个量级
-
     /**
      * 命中后先检查：无敌帧内不允许重复扣次数
      */
@@ -336,38 +332,59 @@ public class GameLoopManager {
     /**
      * 模拟一次“像被玩家近战打中”的效果（不扣血）
      */
-    private static void simulateVanillaLikeHit(ServerPlayer attacker, ServerPlayer victim, Vec3 rayDirNorm) {
-        // ✅ 使用射线方向来决定击退方向
-        // LivingEntity#knockback 的参数是 (strength, xRatio, zRatio)，
-        // 它会用 ratio 来决定水平击退方向
-        double xRatio = rayDirNorm.x;
-        double zRatio = rayDirNorm.z;
+    private static void simulateVanillaLikeHit(ServerPlayer attacker, ServerPlayer victim) {
+        // ✅ 方向：victim 远离 attacker（以水平为主）
+        Vec3 away = victim.position().subtract(attacker.position());
 
-        // 如果射线几乎是竖直的，水平分量太小会导致击退怪异，这里兜底
-        double horiz = Math.sqrt(xRatio * xRatio + zRatio * zRatio);
-        if (horiz < 1e-6) {
-            float yaw = attacker.getYRot();
-            xRatio = -Math.sin(yaw * (Math.PI / 180.0));
-            zRatio = Math.cos(yaw * (Math.PI / 180.0));
-            horiz = Math.sqrt(xRatio * xRatio + zRatio * zRatio);
+        // 只取水平分量，避免向上/向下看导致击退奇怪
+        Vec3 horiz = new Vec3(away.x, 0.0, away.z);
+        double len = horiz.length();
+
+        // 兜底：如果正好重叠（len=0），用 attacker 朝向
+        double xRatio, zRatio;
+        if (len < 1e-6) {
+            Vec3 look = attacker.getLookAngle();
+            Vec3 lookHoriz = new Vec3(look.x, 0.0, look.z);
+            double l2 = lookHoriz.length();
+            if (l2 < 1e-6) {
+                xRatio = 0.0;
+                zRatio = 1.0;
+            } else {
+                xRatio = lookHoriz.x / l2;
+                zRatio = lookHoriz.z / l2;
+            }
+        } else {
+            xRatio = horiz.x / len;
+            zRatio = horiz.z / len;
         }
 
-        xRatio /= horiz;
-        zRatio /= horiz;
-
+        // 1) 击退
         victim.knockback(FAKE_KNOCKBACK, xRatio, zRatio);
 
-        // 无敌帧 + 受击动画
+        // 2) 无敌帧 + 受击动画
         victim.invulnerableTime = FAKE_IFRAMES_TICKS;
         victim.hurtTime = FAKE_HURT_ANIM_TICKS;
         victim.hurtDuration = FAKE_HURT_ANIM_TICKS;
 
-        // 客户端受击红光/抖动
+        // 3) 客户端受击红光/抖动
         victim.level().broadcastEntityEvent(victim, (byte) 2);
 
-        // ✅ 受击音效：见下面第2点
-        playHurtSound(attacker, victim);
+        // 4) 音效（更像原版的两段反馈）
+        // 受击音（在 victim 身上播放，附近人都能听见）
+        victim.level().playSound(null,
+                victim.getX(), victim.getY(), victim.getZ(),
+                SoundEvents.PLAYER_HURT, SoundSource.PLAYERS,
+                1.0F, 1.0F
+        );
 
+        // 击退/命中反馈音（在 attacker 身上播放）
+        attacker.level().playSound(null,
+                attacker.getX(), attacker.getY(), attacker.getZ(),
+                SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.PLAYERS,
+                0.8F, 1.0F
+        );
+
+        // 5) 速度同步更及时
         victim.hurtMarked = true;
     }
 

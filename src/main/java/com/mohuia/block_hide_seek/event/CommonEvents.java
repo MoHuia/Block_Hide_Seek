@@ -47,22 +47,18 @@ public class CommonEvents {
         });
     }
 
-    // 1. 监听伤害事件，判断是否为 抓捕者打躲藏者
     @SubscribeEvent
     public static void onLivingAttack(net.minecraftforge.event.entity.living.LivingDamageEvent event) {
         if (event.getEntity().level().isClientSide) return;
 
-        // 只有当受害者是玩家，且攻击源是玩家时
         if (event.getEntity() instanceof ServerPlayer victim && event.getSource().getEntity() instanceof ServerPlayer attacker) {
             GameLoopManager.onPlayerAttack(attacker, victim);
         }
     }
 
-    // 2. 监听服务器 Tick，驱动游戏倒计时
     @SubscribeEvent
     public static void onServerTick(net.minecraftforge.event.TickEvent.ServerTickEvent event) {
         if (event.phase == net.minecraftforge.event.TickEvent.Phase.END) {
-            // 获取主世界来运行逻辑 (这里简化处理，假设游戏只在 Overworld)
             net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer().getAllLevels().forEach(level -> {
                 if (level.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
                     GameLoopManager.tick(level);
@@ -72,29 +68,34 @@ public class CommonEvents {
     }
 
     // ==========================================
-    //           新增：自动对齐逻辑
+    //           核心：物理与逻辑修正
     // ==========================================
 
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        // 只在服务端处理位移 (防止客户端预测不一致导致的鬼畜抖动)
-        // Phase.END 确保在原版移动逻辑之后执行修正
+        // 只在服务端处理 (Phase.END 确保在原版移动逻辑之后执行)
         if (event.phase != TickEvent.Phase.END || event.player.level().isClientSide) return;
 
         Player player = event.player;
 
+        // --- 1. 强制刷新碰撞箱 (解决 1x1 洞口卡住/回弹问题) ---
+        // 获取 "当前缓存的物理高度"
+        float actualHeight = player.getBbHeight();
+        // 获取 "理论上应该有的高度" (通过 Mixin 计算的)
+        float expectedHeight = player.getDimensions(player.getPose()).height;
+
+        // 如果误差超过 1cm，说明碰撞箱过时了，立刻强制刷新！
+        if (Math.abs(expectedHeight - actualHeight) > 0.01f) {
+            player.refreshDimensions();
+        }
+        // ----------------------------------------------------
+
+        // --- 2. 自动对齐逻辑 ---
         player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-            // 条件：不是抓捕者 + 已变身 + 脚踩地面 (空中不对齐)
             if (!cap.isSeeker() && cap.getDisguise() != null && player.onGround()) {
-
-                // xxa 是左右移动输入, zza 是前后移动输入
-                // 如果绝对值 > 0.01 说明玩家按下了键盘
                 boolean hasInput = Math.abs(player.xxa) > 0.01 || Math.abs(player.zza) > 0.01;
-
-                // 检查实际运动速度 (平方和)
                 boolean isMoving = player.getDeltaMovement().lengthSqr() > 0.005;
 
-                // 只有当玩家【没有按键】且【基本停下来】时，才开始吸附
                 if (!hasInput && !isMoving) {
                     alignToGrid(player);
                 }
@@ -102,39 +103,27 @@ public class CommonEvents {
         });
     }
 
-    /**
-     * 将玩家平滑吸附到方块中心，并对齐 90 度旋转
-     */
     private static void alignToGrid(Player player) {
-        // 1. 计算目标位置 (方块中心)
-        // Math.floor(x) + 0.5 永远是格子的正中心
         double targetX = Math.floor(player.getX()) + 0.5;
         double targetZ = Math.floor(player.getZ()) + 0.5;
 
         double currentX = player.getX();
         double currentZ = player.getZ();
 
-        // 平滑系数 (0.0 ~ 1.0)，越大吸得越快。0.2 比较自然
         double lerpFactor = 0.2;
 
         double newX = currentX + (targetX - currentX) * lerpFactor;
         double newZ = currentZ + (targetZ - currentZ) * lerpFactor;
 
-        // 如果距离非常近了，直接锁定，避免无限微积分运算
         if (Math.abs(targetX - currentX) < 0.01) newX = targetX;
         if (Math.abs(targetZ - currentZ) < 0.01) newZ = targetZ;
 
-        // 2. 计算目标角度 (最近的 90 度倍数)
         float currentYaw = player.getYRot();
-        // 这里的逻辑是：除以90 -> 四舍五入 -> 乘回90
         float targetYaw = Math.round(currentYaw / 90.0f) * 90.0f;
 
-        // 角度平滑旋转
         float newYaw = currentYaw + (targetYaw - currentYaw) * 0.2f;
         if (Math.abs(targetYaw - currentYaw) < 1.0f) newYaw = targetYaw;
 
-        // 3. 应用位置和旋转
-        // 注意：必须同时设置 YBodyRot (身体朝向)，否则方块渲染可能会歪
         player.setPos(newX, player.getY(), newZ);
         player.setYRot(newYaw);
         player.setYBodyRot(newYaw);

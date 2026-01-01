@@ -1,6 +1,6 @@
 package com.mohuia.block_hide_seek.item;
 
-import com.mohuia.block_hide_seek.data.GameDataProvider;
+import com.mohuia.block_hide_seek.client.ClientModelHelper;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.world.BlockWhitelistData;
 import net.minecraft.ChatFormatting;
@@ -18,7 +18,10 @@ import net.minecraft.world.item.Rarity;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,102 +33,135 @@ public class SeekerWandItem extends Item {
 
     public SeekerWandItem() {
         super(new Properties()
-                .stacksTo(16)
+                .stacksTo(1) // 一次性道具，或者不可堆叠
                 .rarity(Rarity.EPIC)
                 .fireResistant());
     }
 
-    /**
-     * 左键点击方块触发 (利用挖掘事件)
-     * 逻辑：如果玩家是创造模式 -> 获取点击的方块 -> 设置伪装 -> 取消破坏方块
-     */
+    // ==========================================
+    //            左键逻辑：调试变身 (仅创造)
+    // ==========================================
+
     @Override
     public boolean onBlockStartBreak(ItemStack itemstack, BlockPos pos, Player player) {
-        // 1. 只在服务端运行逻辑
-        if (player.level().isClientSide) {
+        // 1. 【严格限制】仅限创造模式
+        // 生存模式玩家左键只会像普通物品一样敲击方块
+        if (!player.isCreative()) {
             return false;
         }
 
-        // 2. 权限检查：只有创造模式可以用左键变身
-        if (!player.isCreative()) {
-            return false; // 普通生存模式玩家左键就是正常挖掘，不触发变身
+        Level level = player.level();
+        BlockState targetState = level.getBlockState(pos);
+
+        // 2. 基础检查
+        if (targetState.isAir() || targetState.getRenderShape() == RenderShape.INVISIBLE) {
+            return false;
         }
 
-        // 3. 获取目标方块
-        BlockState targetState = player.level().getBlockState(pos);
-        if (targetState.isAir()) return false;
+        // 3. 客户端逻辑：计算模型并请求变身
+        if (level.isClientSide) {
+            DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () ->
+                    handleClientTransform(player, targetState)
+            );
+        }
 
-        // 4. 执行变身逻辑
-        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-            cap.setSeeker(false);
-            cap.setDisguise(targetState);
-
-            // 5. 同步数据
-            if (player instanceof ServerPlayer serverPlayer) {
-                PacketHandler.INSTANCE.send(
-                        PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> serverPlayer),
-                        new PacketHandler.S2CSyncGameData(player.getId(), false, targetState)
-                );
-
-                // 6. 反馈消息 & 音效
-                serverPlayer.sendSystemMessage(Component.literal("🪄 [创造模式] 已快速变身为: " + targetState.getBlock().getName().getString())
-                        .withStyle(ChatFormatting.LIGHT_PURPLE));
-                player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                        SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.PLAYERS, 1.0F, 1.0F);
-            }
-        });
-
-        // 7. 返回 true 表示 "取消方块破坏事件" (这样左键就不会把方块打碎了)
+        // 4. 返回 true 阻止方块被破坏
+        // 创造模式下左键通常会瞬间破坏方块，这里拦截它来实现变身功能
         return true;
     }
 
     /**
-     * 右键点击空气/方块触发 (打开菜单)
+     * 客户端专用：计算尺寸并发送变身包
      */
+    private void handleClientTransform(Player player, BlockState worldState) {
+        // =====================================================================
+        // 🔧 核心逻辑：状态清洗 (State Cleaning)
+        // 即使是调试，也要模拟右键的逻辑，使用"干净"的默认状态，防止模型歪斜
+        // =====================================================================
+
+        BlockState cleanState = worldState.getBlock().defaultBlockState();
+
+        // 计算尺寸 (使用 cleanState)
+        ClientModelHelper.SizeResult result = ClientModelHelper.getSizeResult(cleanState);
+
+        // 发送包
+        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSelectBlock(
+                cleanState,
+                result.modelW, result.modelH,
+                result.obbX, result.obbY, result.obbZ
+        ));
+
+        // 调试反馈
+        player.playSound(SoundEvents.UI_LOOM_TAKE_RESULT, 1.0f, 1.0f);
+        player.displayClientMessage(Component.literal("§d⚡ [Debug] 已强制变身为: " + cleanState.getBlock().getName().getString()), true);
+    }
+
+
+    // ==========================================
+    //            右键逻辑：随机菜单 (消耗品)
+    // ==========================================
+
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack itemStack = player.getItemInHand(hand);
 
+        // 只在服务端处理
         if (!level.isClientSide && player instanceof ServerPlayer serverPlayer) {
 
-            // --- 获取随机列表逻辑 ---
-            BlockWhitelistData whitelistData = BlockWhitelistData.get(level);
-            List<BlockState> allAllowed = new ArrayList<>(whitelistData.getAllowedStates());
-
-            if (allAllowed.isEmpty()) {
-                allAllowed.add(Blocks.CRAFTING_TABLE.defaultBlockState());
+            // 1. 冷却检查
+            if (player.getCooldowns().isOnCooldown(this)) {
+                return InteractionResultHolder.fail(itemStack);
             }
 
-            Collections.shuffle(allAllowed);
-            int pickCount = Math.min(allAllowed.size(), 4);
-            List<BlockState> options = allAllowed.subList(0, pickCount);
+            // 2. 获取随机方块
+            List<BlockState> options = getSubSetOfWhitelist(level, 4);
 
-            // 发包打开 UI
+            // 3. 打开 GUI
             PacketHandler.INSTANCE.send(
                     PacketDistributor.PLAYER.with(() -> serverPlayer),
                     new PacketHandler.S2COpenSelectScreen(options)
             );
-            // ----------------
 
+            // 4. 播放音效
             level.playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.ENDER_EYE_DEATH, SoundSource.PLAYERS, 1.0F, 1.0F);
 
-            // 消耗物品 (非创造模式)
+            // 5. 【消耗品逻辑】非创造模式扣除物品
             if (!player.getAbilities().instabuild) {
                 itemStack.shrink(1);
             }
 
+            // 6. 设置冷却 (防止因网络延迟导致的连点)
             player.getCooldowns().addCooldown(this, 20);
-            return InteractionResultHolder.consume(itemStack);
         }
 
         return InteractionResultHolder.consume(itemStack);
     }
 
+    /**
+     * 辅助方法：从白名单中随机抽取 N 个方块
+     */
+    private List<BlockState> getSubSetOfWhitelist(Level level, int count) {
+        BlockWhitelistData whitelistData = BlockWhitelistData.get(level);
+        List<BlockState> allAllowed = new ArrayList<>(whitelistData.getAllowedStates());
+
+        if (allAllowed.isEmpty()) {
+            allAllowed.add(Blocks.CRAFTING_TABLE.defaultBlockState());
+        }
+
+        Collections.shuffle(allAllowed);
+        return allAllowed.subList(0, Math.min(allAllowed.size(), count));
+    }
+
+    // ==========================================
+    //            工具提示
+    // ==========================================
+
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltipComponents, TooltipFlag isAdvanced) {
-        tooltipComponents.add(Component.literal("🖱️ 右键: 打开随机伪装菜单 (消耗品)").withStyle(ChatFormatting.GRAY));
-        tooltipComponents.add(Component.literal("🖱️ 左键(仅创造): 变成指针指向的方块").withStyle(ChatFormatting.GOLD));
+        tooltipComponents.add(Component.literal("🖱️ 右键: 打开随机伪装菜单 (一次性)").withStyle(ChatFormatting.GRAY));
+        // 仅在按住 Shift 或创造模式下显示调试信息 (可选优化，这里直接显示)
+        tooltipComponents.add(Component.literal("🖱️ 左键(仅创造): Debug - 变身为指向方块").withStyle(ChatFormatting.DARK_PURPLE));
         super.appendHoverText(stack, level, tooltipComponents, isAdvanced);
     }
 }

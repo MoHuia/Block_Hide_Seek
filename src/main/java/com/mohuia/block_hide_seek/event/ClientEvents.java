@@ -16,11 +16,11 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -42,8 +42,6 @@ import java.util.Map;
 public class ClientEvents {
 
     private static Float lockedBodyYaw = null;
-
-    // 缓存模型的偏移量
     private static final Map<BlockState, float[]> MODEL_OFFSET_CACHE = new HashMap<>();
 
     @SubscribeEvent
@@ -64,75 +62,127 @@ public class ClientEvents {
         PoseStack poseStack = event.getPoseStack();
         poseStack.pushPose();
 
+        Player player = event.getEntity();
         float renderYaw;
-        if (lockedBodyYaw != null && event.getEntity() == Minecraft.getInstance().player) {
+
+        // 【关键修复】使用插值 (Interpolation) 让旋转丝滑
+        // Mth.rotLerp 会自动处理 360度 -> 0度 的边界问题，防止转圈鬼畜
+        if (lockedBodyYaw != null && player == Minecraft.getInstance().player) {
             renderYaw = lockedBodyYaw;
         } else {
-            renderYaw = event.getEntity().yBodyRot;
+            float partialTick = event.getPartialTick();
+            renderYaw = Mth.rotLerp(partialTick, player.yBodyRotO, player.yBodyRot);
         }
+
         poseStack.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-renderYaw));
 
-        // =========================================================================
-        // 【通用判定逻辑】
-        // 不需要硬编码名字了，我们通过几何形状来判断！
-        // =========================================================================
+        Level level = player.level();
+        // =============================================================
+        // 分类渲染逻辑
+        // =============================================================
 
-        Level level = event.getEntity().level();
-        BlockPos pos = event.getEntity().blockPosition();
-
-        // 判定1：是否是标准实心方块 (例如石头、泥土)
-        // isSolidRender 通常意味着它是一个不透明的完整方块
-        boolean isSolid = state.isSolidRender(level, pos);
-
-        // 判定2：碰撞箱是否是完整立方体
-        // isCollisionShapeFullBlock 意味着它的物理体积也是满的
-        boolean isFullCube = state.isCollisionShapeFullBlock(level, pos);
-
-        // 核心逻辑：
-        // 只要它不是一个"既实心又完整"的方块，它就是一个"复杂方块" (电瓶车、椅子、花、台阶等)
-        // 复杂方块强制走 Item 渲染，这样会自动应用你的"自动居中算法"
-        boolean forceItemRender = !(isSolid && isFullCube);
-
-        // 额外兼容：如果 RenderShape 本身不是 MODEL (比如特殊的实体渲染)，也强制走 Item
-        if (state.getRenderShape() != RenderShape.MODEL) {
-            forceItemRender = true;
+        // 1. 【实体方块】(床、箱子) -> 强制 Item 渲染 (带实体抬高修复)
+        if (state.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED) {
+            renderEntityBlockAsItem(event, poseStack, state);
         }
-
-        if (forceItemRender) {
-            renderComplexBlockAsItem(event, poseStack, state);
-        } else {
-            renderRealBlock(event, poseStack, state);
+        // 2. 【复杂 3D 物品】(家具、车、栏杆) -> 走 Item 渲染 (兼容性修复 + 居中修正)
+        else if (shouldRenderAsItem(state, level)) {
+            ItemStack stack = new ItemStack(state.getBlock());
+            BakedModel itemModel = Minecraft.getInstance().getItemRenderer().getModel(stack, level, null, 0);
+            renderItemWithAutoCenter(event, poseStack, state, stack, itemModel);
+        }
+        // 3. 【所有其他方块】(原版方块、门、花、草) -> 走手动 Quad 渲染 (解决闪烁 + 支持双层)
+        else {
+            renderBlockManually(event, poseStack, state);
         }
 
         poseStack.popPose();
     }
 
+    // 辅助判断：是否应该作为物品渲染 (GUI里是3D的物品)
+    private static boolean shouldRenderAsItem(BlockState state, Level level) {
+        ItemStack stack = new ItemStack(state.getBlock());
+        if (stack.isEmpty()) return false;
+        BakedModel itemModel = Minecraft.getInstance().getItemRenderer().getModel(stack, level, null, 0);
+        return itemModel.isGui3d();
+    }
+
     /**
-     * 普通方块：真实光影渲染 (已包含AO)
+     * 策略 A: 3D 物品渲染 (Yuushya、家具、载具)
+     * 应用 0.5 - offset 反向补偿，解决陷地和偏心
      */
-    private static void renderRealBlock(RenderPlayerEvent.Pre event, PoseStack poseStack, BlockState state) {
+    private static void renderItemWithAutoCenter(RenderPlayerEvent.Pre event, PoseStack poseStack, BlockState state, ItemStack stack, BakedModel model) {
         poseStack.pushPose();
-        poseStack.translate(-0.5D, 0.0D, -0.5D);
 
-        var minecraft = Minecraft.getInstance();
-        var blockRenderer = minecraft.getBlockRenderer();
-        var modelRenderer = blockRenderer.getModelRenderer();
-        var level = event.getEntity().level();
-        var pos = event.getEntity().blockPosition();
+        float[] offsets = MODEL_OFFSET_CACHE.computeIfAbsent(state, s -> calculateModelOffsets(model));
+        float midX = offsets[0];
+        float minY = offsets[1];
+        float midZ = offsets[2];
 
-        RenderType renderType = ItemBlockRenderTypes.getChunkRenderType(state);
-        VertexConsumer buffer = event.getMultiBufferSource().getBuffer(renderType);
+        // 反向补偿：将模型的“脚底”对齐到玩家的“脚底”
+        float transX = 0.5f - midX;
+        float transY = 0.5f - minY;
+        float transZ = 0.5f - midZ;
+
+        poseStack.translate(transX, transY, transZ);
+
+        BlockPos lightPos = BlockPos.containing(event.getEntity().getX(), event.getEntity().getEyeY(), event.getEntity().getZ());
+        int light = LevelRenderer.getLightColor(event.getEntity().level(), lightPos);
+
+        Minecraft.getInstance().getItemRenderer().renderStatic(
+                stack,
+                net.minecraft.world.item.ItemDisplayContext.NONE,
+                light,
+                OverlayTexture.NO_OVERLAY,
+                poseStack,
+                event.getMultiBufferSource(),
+                event.getEntity().level(),
+                0
+        );
+
+        poseStack.popPose();
+    }
+
+    /**
+     * 策略 B: 手动方块渲染 (原版方块、门、花)
+     * 1. 彻底解决跳跃闪烁 (不计算动态 AO)
+     * 2. 支持生物群系颜色
+     * 3. 支持 Seed 锁定
+     * 4. 支持双层结构
+     */
+    private static void renderBlockManually(RenderPlayerEvent.Pre event, PoseStack poseStack, BlockState state) {
+        var blockRenderer = Minecraft.getInstance().getBlockRenderer();
         BakedModel model = blockRenderer.getBlockModel(state);
-        long seed = state.getSeed(pos);
+        Level level = event.getEntity().level();
+        BlockPos pos = event.getEntity().blockPosition();
 
-        modelRenderer.tesselateBlock(level, model, state, pos, poseStack, buffer, false, RandomSource.create(), seed, OverlayTexture.NO_OVERLAY);
+        float[] offsets = MODEL_OFFSET_CACHE.computeIfAbsent(state, s -> calculateModelOffsets(model));
 
-        if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && state.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.LOWER) {
+        poseStack.pushPose();
+        // BlockRenderer 坐标系是 0~1，直接减去中心点居中
+        poseStack.translate(-offsets[0], -offsets[1], -offsets[2]);
+
+        RenderType renderType = ItemBlockRenderTypes.getRenderType(state, false);
+        VertexConsumer buffer = event.getMultiBufferSource().getBuffer(renderType);
+
+        BlockPos lightPos = BlockPos.containing(event.getEntity().getX(), event.getEntity().getEyeY(), event.getEntity().getZ());
+        int light = LevelRenderer.getLightColor(level, lightPos);
+
+        long fixedSeed = state.getSeed(BlockPos.ZERO);
+
+        // 渲染主体
+        renderSingleBlockModel(poseStack, buffer, model, state, light, fixedSeed, level, pos);
+
+        // 双层补全 (门、高花)
+        if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) &&
+                state.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.LOWER) {
+
             BlockState upperState = state.setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, DoubleBlockHalf.UPPER);
             BakedModel upperModel = blockRenderer.getBlockModel(upperState);
+
             poseStack.pushPose();
-            poseStack.translate(0.0D, 1.0D, 0.0D);
-            modelRenderer.tesselateBlock(level, upperModel, upperState, pos.above(), poseStack, buffer, false, RandomSource.create(), seed, OverlayTexture.NO_OVERLAY);
+            poseStack.translate(0.0, 1.0, 0.0);
+            renderSingleBlockModel(poseStack, buffer, upperModel, upperState, light, fixedSeed, level, pos);
             poseStack.popPose();
         }
 
@@ -140,79 +190,46 @@ public class ClientEvents {
     }
 
     /**
-     * 复杂方块：模型直出渲染 (手动光照修正版)
-     * 保留了你的自动对齐算法，只修复了光照太亮/太平的问题
+     * 策略 C: 实体方块 (床、箱子)
+     * 简单抬高
      */
-    private static void renderComplexBlockAsItem(RenderPlayerEvent.Pre event, PoseStack poseStack, BlockState state) {
+    private static void renderEntityBlockAsItem(RenderPlayerEvent.Pre event, PoseStack poseStack, BlockState state) {
         ItemStack stack = new ItemStack(state.getBlock());
         if (stack.isEmpty()) return;
 
         poseStack.pushPose();
+        poseStack.translate(0.0, 0.5, 0.0);
 
-        var itemRenderer = Minecraft.getInstance().getItemRenderer();
-        var model = itemRenderer.getModel(stack, event.getEntity().level(), null, 0);
-
-        // 1. 你的核心算法 (保持不变)
-        float[] offsets = MODEL_OFFSET_CACHE.computeIfAbsent(state, s -> calculateModelOffsets(model));
-        float midX = offsets[0];
-        float minY = offsets[1];
-        float midZ = offsets[2];
-
-        // 2. 你的位移逻辑 (保持不变)
-        poseStack.translate(-midX, -minY, -midZ);
-
-        // 3. 准备渲染
-        var renderType = RenderType.cutout(); // 或者使用 ItemBlockRenderTypes.getRenderType(stack, true)
-        var buffer = event.getMultiBufferSource().getBuffer(renderType);
-
-        BlockPos lightPos = BlockPos.containing(event.getEntity().getX(), event.getEntity().getY() + 0.5, event.getEntity().getZ());
+        BlockPos lightPos = BlockPos.containing(event.getEntity().getX(), event.getEntity().getEyeY(), event.getEntity().getZ());
         int light = LevelRenderer.getLightColor(event.getEntity().level(), lightPos);
 
-        // 4. 【核心修复】：手动遍历面并应用阴影
-        // 不再调用 blockRenderer.renderModel，而是手动画，这样才能控制光影
+        Minecraft.getInstance().getItemRenderer().renderStatic(stack, net.minecraft.world.item.ItemDisplayContext.NONE, light, OverlayTexture.NO_OVERLAY, poseStack, event.getMultiBufferSource(), event.getEntity().level(), 0);
+        poseStack.popPose();
+    }
+
+    // 核心绘制方法：支持颜色混合 (Tinting)
+    private static void renderSingleBlockModel(PoseStack poseStack, VertexConsumer buffer, BakedModel model, BlockState state, int light, long seed, Level level, BlockPos pos) {
         RandomSource rand = RandomSource.create();
-        long seed = state.getSeed(event.getEntity().blockPosition());
 
         for (Direction dir : new Direction[]{null, Direction.UP, Direction.DOWN, Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST}) {
             rand.setSeed(seed);
             List<BakedQuad> quads = model.getQuads(state, dir, rand);
 
             for (BakedQuad quad : quads) {
-                float shade = 1.0F;
+                float r = 1f, g = 1f, b = 1f;
 
-                // 如果这个面需要阴影 (大部分模型都需要)
-                if (quad.isShade()) {
-                    // 模拟原版物品/方块的漫反射光照
-                    // 上面亮，下面暗，侧面有深浅
-                    Direction faceDir = quad.getDirection();
-                    if (faceDir != null) {
-                        switch (faceDir) {
-                            case DOWN -> shade = 0.5F;
-                            case UP -> shade = 1.0F;
-                            case NORTH, SOUTH -> shade = 0.8F;
-                            case WEST, EAST -> shade = 0.6F;
-                            default -> shade = 1.0F;
-                        }
-                    }
+                if (quad.isTinted()) {
+                    int color = Minecraft.getInstance().getBlockColors().getColor(state, level, pos, quad.getTintIndex());
+                    r = (float)(color >> 16 & 255) / 255.0F;
+                    g = (float)(color >> 8 & 255) / 255.0F;
+                    b = (float)(color & 255) / 255.0F;
                 }
 
-                // 使用 putBulkData 绘制，同时乘上 shade 系数
-                buffer.putBulkData(
-                        poseStack.last(),
-                        quad,
-                        shade, shade, shade, // RGB 颜色乘上阴影系数
-                        light,
-                        OverlayTexture.NO_OVERLAY
-                );
+                buffer.putBulkData(poseStack.last(), quad, r, g, b, light, OverlayTexture.NO_OVERLAY);
             }
         }
-
-        poseStack.popPose();
     }
 
-    /**
-     * 【算法核心】扫描模型顶点
-     */
     private static float[] calculateModelOffsets(BakedModel model) {
         float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
         float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;

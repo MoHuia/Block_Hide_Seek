@@ -41,12 +41,17 @@ public class SelectScreen extends Screen {
 
     // --- 动画时间配置 ---
     private static final float ENTRY_ANIMATION_DURATION = 0.8f;
-    private static final float EXIT_ANIMATION_DURATION = 3.0f;
+    private static final float EXIT_ANIMATION_DURATION = 1.2f;
 
     // --- 关键时间点 (归一化 0.0-1.0) ---
-    private static final float PHASE_MOVE_END = 0.5f / EXIT_ANIMATION_DURATION;
-    private static final float PHASE_HOVER_END = 1.5f / EXIT_ANIMATION_DURATION;
-    private static final float PHASE_BLACK_END = 2.2f / EXIT_ANIMATION_DURATION;
+    // 0.4秒完成选中卡片移动到中间
+    private static final float PHASE_MOVE_END = 0.4f / EXIT_ANIMATION_DURATION;
+
+    // 0.7秒时开始界面变黑/UI消失 (稍微停顿一下让玩家看清)
+    private static final float PHASE_HOVER_END = 0.7f / EXIT_ANIMATION_DURATION;
+
+    // 1.0秒时完全变黑 (最后0.2秒留给纯黑过渡)
+    private static final float PHASE_BLACK_END = 1.0f / EXIT_ANIMATION_DURATION;
 
     // --- 状态控制 ---
     private long screenOpenedTime;

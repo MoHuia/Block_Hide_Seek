@@ -105,6 +105,14 @@ tasks.named('jar', Jar).configure {
     }
 
     finalizedBy 'reobfJar'
+    finalizedBy 'copyJarToRuntimeMods'   //  自动复制
+}
+
+tasks.register('copyJarToRuntimeMods', Copy) {
+    dependsOn tasks.named('jar')
+
+    from(tasks.named('jar').get().archiveFile)
+    into file("D:\\魔法PVP-先行测试版\\.minecraft\\versions\\魔法PVP-先行测试版\\mods")
 }
 
 publishing {

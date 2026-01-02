@@ -6,6 +6,8 @@ import com.mohuia.block_hide_seek.event.GameStartEvent;
 import com.mohuia.block_hide_seek.hitbox.ObbRaycast;
 import com.mohuia.block_hide_seek.hitbox.ObbUtil;
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import com.mohuia.block_hide_seek.packet.S2C.S2COpenSelectScreen;
+import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
 import com.mohuia.block_hide_seek.world.BlockWhitelistData;
 import com.mohuia.block_hide_seek.world.ServerGameConfig;
 import net.minecraft.ChatFormatting;
@@ -432,7 +434,7 @@ public class GameLoopManager {
         Collections.shuffle(myOptions);
         myOptions = myOptions.subList(0, Math.min(myOptions.size(), 4));
 
-        PacketHandler.INSTANCE.send(PacketDistributor.PLAYER.with(() -> player), new PacketHandler.S2COpenSelectScreen(myOptions));
+        PacketHandler.INSTANCE.send(PacketDistributor.PLAYER.with(() -> player), new S2COpenSelectScreen(myOptions));
     }
 
     // ==========================================
@@ -464,7 +466,7 @@ public class GameLoopManager {
     private static void syncData(ServerPlayer player, boolean seeker, BlockState block) {
         PacketHandler.INSTANCE.send(
                 PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
-                new PacketHandler.S2CSyncGameData(player.getId(), seeker, block)
+                new S2CSyncGameData(player.getId(), seeker, block)
         );
         player.refreshDimensions();
     }

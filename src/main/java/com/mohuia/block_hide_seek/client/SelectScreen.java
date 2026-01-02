@@ -1,5 +1,6 @@
 package com.mohuia.block_hide_seek.client;
 
+import com.mohuia.block_hide_seek.packet.C2S.C2SSelectBlock;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
@@ -515,7 +516,7 @@ public class SelectScreen extends Screen {
 
         // 2) 发送带有：伪装方块 + 玩家尺寸(modelW/H) + OBB真实尺寸(x/y/z)
         PacketHandler.INSTANCE.sendToServer(
-                new PacketHandler.C2SSelectBlock(state, r.modelW, r.modelH, r.obbX, r.obbY, r.obbZ)
+                new C2SSelectBlock(state, r.modelW, r.modelH, r.obbX, r.obbY, r.obbZ)
         );
 
         Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_LOOM_TAKE_RESULT, 1.0F));

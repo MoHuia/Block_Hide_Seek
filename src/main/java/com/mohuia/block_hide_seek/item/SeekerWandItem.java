@@ -2,6 +2,8 @@ package com.mohuia.block_hide_seek.item;
 
 import com.mohuia.block_hide_seek.client.ClientModelHelper;
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import com.mohuia.block_hide_seek.packet.C2S.C2SSelectBlock;
+import com.mohuia.block_hide_seek.packet.S2C.S2COpenSelectScreen;
 import com.mohuia.block_hide_seek.world.BlockWhitelistData;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -85,7 +87,7 @@ public class SeekerWandItem extends Item {
         ClientModelHelper.SizeResult result = ClientModelHelper.getSizeResult(cleanState);
 
         // 发送包
-        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSelectBlock(
+        PacketHandler.INSTANCE.sendToServer(new C2SSelectBlock(
                 cleanState,
                 result.modelW, result.modelH,
                 result.obbX, result.obbY, result.obbZ
@@ -119,7 +121,7 @@ public class SeekerWandItem extends Item {
             // 3. 打开 GUI
             PacketHandler.INSTANCE.send(
                     PacketDistributor.PLAYER.with(() -> serverPlayer),
-                    new PacketHandler.S2COpenSelectScreen(options)
+                    new S2COpenSelectScreen(options)
             );
 
             // 4. 播放音效

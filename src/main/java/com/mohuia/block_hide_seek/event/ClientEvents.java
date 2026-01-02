@@ -1,5 +1,8 @@
 package com.mohuia.block_hide_seek.event;
 
+import com.mohuia.block_hide_seek.packet.C2S.C2SAttackRaycast;
+import com.mohuia.block_hide_seek.packet.C2S.C2SRequestConfig;
+import com.mohuia.block_hide_seek.packet.C2S.C2SSetYawLock;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mohuia.block_hide_seek.BlockHideSeek;
@@ -110,37 +113,41 @@ public class ClientEvents {
         poseStack.pushPose();
 
         Player player = event.getEntity();
-        float pt = event.getPartialTick();
+        float renderYaw;
 
-        // 默认：跟随视线/头部（你想“指哪打哪”）
-        float renderYaw = player.getViewYRot(pt);
+        // --- [修改点] 角度计算逻辑 ---
 
-        // ✅ 从 capability 读锁定状态（对自己/别人都生效）
-        final float[] yawBox = new float[]{renderYaw};
-        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-            if (cap.isYawLocked()) {
-                yawBox[0] = cap.getLockedYaw(); // 服务端同步过来的锁定yaw
-            } else {
-                // 不锁定时按你的需求：跟随视线
-                yawBox[0] = player.getViewYRot(pt);
-                // 如果你发现“别人视线不灵”，可以改成头部插值：
-                // yawBox[0] = Mth.rotLerp(pt, player.yHeadRotO, player.yHeadRot);
-            }
-        });
-        renderYaw = yawBox[0];
+        // 1. 如果开启了【方向锁定】(Caps Lock)，且渲染的是当前玩家自己
+        //    则强制使用锁定时的角度，无视当前鼠标朝向，实现“自由观察”
+        if (lockedBodyYaw != null && player == Minecraft.getInstance().player) {
+            renderYaw = lockedBodyYaw;
+        }
+        // 2. 否则，完全跟随【玩家准星/视线】(View Yaw)
+        //    这样操作更灵敏，指哪打哪，不再有身体转动的延迟
+        else {
+            float partialTick = event.getPartialTick();
+            renderYaw = player.getViewYRot(partialTick);
+        }
 
-        // 应用旋转（你这里取反是对的）
+        // 应用旋转 (注意：Minecraft 渲染旋转通常取反)
         poseStack.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-renderYaw));
 
         Level level = player.level();
 
+        // 根据方块类型分发渲染任务：
+
+        // A. 实体方块 (如：箱子、告示牌，通常用 Item 渲染更稳)
         if (state.getRenderShape() == RenderShape.ENTITYBLOCK_ANIMATED) {
             renderEntityBlockAsItem(event, poseStack, state);
-        } else if (shouldRenderAsItem(state, level)) {
+        }
+        // B. 3D 物品模型 (如：梯子、火把、栅栏等，作为物品渲染位置更正)
+        else if (shouldRenderAsItem(state, level)) {
             ItemStack stack = new ItemStack(state.getBlock());
             BakedModel itemModel = Minecraft.getInstance().getItemRenderer().getModel(stack, level, null, 0);
             renderItemWithAutoCenter(event, poseStack, state, stack, itemModel);
-        } else {
+        }
+        // C. 普通方块 (如：石头、泥土，直接渲染 BlockModel)
+        else {
             renderBlockManually(event, poseStack, state);
         }
 
@@ -348,7 +355,7 @@ public class ClientEvents {
 
         // --- 打开菜单 (按键: O) ---
         while (KeyInit.OPEN_CONFIG.consumeClick()) {
-            PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SRequestConfig());
+            PacketHandler.INSTANCE.sendToServer(new C2SRequestConfig());
         }
 
         // --- 移动、对齐与锁定逻辑 ---
@@ -374,7 +381,7 @@ public class ClientEvents {
                 if (isAlignActive || isRotationLocked) {
                     resetStates();
                     player.displayClientMessage(Component.literal("§c已解除锁定"), true);
-                    PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSetYawLock(false, 0.0f));
+                    PacketHandler.INSTANCE.sendToServer(new C2SSetYawLock(false, 0.0f));
                 }
             }
             // 3. 静止状态：允许功能切换
@@ -405,12 +412,12 @@ public class ClientEvents {
                         lockedBodyYaw = player.getViewYRot(1.0f);
                         player.displayClientMessage(Component.literal("§a方向锁定: 开启 (自由视角)"), true);
                         // ✅ 发包通知服务端（锁定 + yaw）
-                        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSetYawLock(true, lockedBodyYaw));
+                        PacketHandler.INSTANCE.sendToServer(new C2SSetYawLock(true, lockedBodyYaw));
                     } else {
                         lockedBodyYaw = null;
                         player.displayClientMessage(Component.literal("§c方向锁定: 关闭"), true);
                         // ✅ 发包通知服务端（解除锁定）
-                        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SSetYawLock(false, 0.0f));
+                        PacketHandler.INSTANCE.sendToServer(new C2SSetYawLock(false, 0.0f));
                     }
                 }
                 // 执行对齐逻辑 (吸附到方块中心)
@@ -481,7 +488,7 @@ public class ClientEvents {
 
         // 发送攻击请求到服务端
         boolean debugParticles = false; // 调试开关
-        PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SAttackRaycast(debugParticles));
+        PacketHandler.INSTANCE.sendToServer(new C2SAttackRaycast(debugParticles));
     }
     //================按帧滑动屏幕=================
     //先注册

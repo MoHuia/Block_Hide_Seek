@@ -2,6 +2,7 @@ package com.mohuia.block_hide_seek.world;
 
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -40,7 +41,7 @@ public class DisguiseManager {
             // 这样其他玩家能看到伪装，且自己的客户端能更新 Hitbox
             PacketHandler.INSTANCE.send(
                     PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
-                    new PacketHandler.S2CSyncGameData(
+                    new S2CSyncGameData(
                             player.getId(),
                             false, // isSeeker
                             blockState,

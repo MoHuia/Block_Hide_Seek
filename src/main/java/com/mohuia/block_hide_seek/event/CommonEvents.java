@@ -4,6 +4,7 @@ import com.mohuia.block_hide_seek.BlockHideSeek;
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.game.GameLoopManager;
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -42,7 +43,7 @@ public class CommonEvents {
             target.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
                 // 仅发送目标玩家的数据给观察者
                 PacketHandler.INSTANCE.send(PacketDistributor.PLAYER.with(() -> observer),
-                        new PacketHandler.S2CSyncGameData(target.getId(), cap.isSeeker(), cap.getDisguise()));
+                        new S2CSyncGameData(target.getId(), cap.isSeeker(), cap.getDisguise()));
             });
         }
     }

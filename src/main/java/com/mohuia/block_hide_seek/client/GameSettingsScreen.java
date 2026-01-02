@@ -1,6 +1,7 @@
 package com.mohuia.block_hide_seek.client;
 
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import com.mohuia.block_hide_seek.packet.C2S.C2SUpdateGameSettings;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -10,13 +11,18 @@ public class GameSettingsScreen extends Screen {
     private final Screen lastScreen;
 
     // 参数缓存
-    private int duration = 300;
-    private int hits = 5;
-    private int seekers = 1;
+    private int duration;
+    private int hits;
+    private int seekers;
 
     public GameSettingsScreen(Screen lastScreen) {
         super(Component.literal("游戏规则设置"));
         this.lastScreen = lastScreen;
+
+        //读取游戏设置最新值
+        this.duration = ClientConfigCache.duration;
+        this.hits = ClientConfigCache.hits;
+        this.seekers = ClientConfigCache.seekers;
     }
 
     @Override
@@ -40,7 +46,7 @@ public class GameSettingsScreen extends Screen {
         // 保存并返回
         addRenderableWidget(Button.builder(Component.literal("保存并返回"), b -> {
             // 发送包到服务器更新
-            PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SUpdateGameSettings(duration, hits, seekers));
+            PacketHandler.INSTANCE.sendToServer(new C2SUpdateGameSettings(duration, hits, seekers));
             this.minecraft.setScreen(lastScreen);
         }).bounds(centerX - 50, startY + step * 4, 100, 20).build());
     }

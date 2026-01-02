@@ -1,6 +1,7 @@
 package com.mohuia.block_hide_seek.client;
 
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import com.mohuia.block_hide_seek.packet.C2S.C2SModelSizeResponse;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.client.resources.model.BakedModel;
@@ -41,7 +42,7 @@ public class ClientModelHelper {
 
         if (!(stack.getItem() instanceof BlockItem blockItem)) {
             PacketHandler.INSTANCE.sendToServer(
-                    new PacketHandler.C2SModelSizeResponse(1f, 1f, "非方块", "手持物品不是 BlockItem")
+                    new C2SModelSizeResponse(1f, 1f, "非方块", "手持物品不是 BlockItem")
             );
             return;
         }
@@ -67,7 +68,7 @@ public class ClientModelHelper {
 
         // 4. 回包
         PacketHandler.INSTANCE.sendToServer(
-                new PacketHandler.C2SModelSizeResponse(fixedSize[0], fixedSize[1], name, log.toString())
+                new C2SModelSizeResponse(fixedSize[0], fixedSize[1], name, log.toString())
         );
     }
 

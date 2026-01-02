@@ -1,6 +1,7 @@
 package com.mohuia.block_hide_seek.client;
 
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import com.mohuia.block_hide_seek.packet.C2S.C2SToggleWhitelist;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -121,7 +122,7 @@ public class ConfigScreen extends Screen {
             int index = row * LIST_COLS + col;
 
             if (index >= 0 && index < whitelist.size()) {
-                PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SToggleWhitelist(whitelist.get(index)));
+                PacketHandler.INSTANCE.sendToServer(new C2SToggleWhitelist(whitelist.get(index)));
                 playClickSound();
                 return true;
             }
@@ -317,7 +318,7 @@ public class ConfigScreen extends Screen {
 
     private void tryAddBlock(ItemStack stack) {
         if (!stack.isEmpty() && stack.getItem() instanceof BlockItem blockItem) {
-            PacketHandler.INSTANCE.sendToServer(new PacketHandler.C2SToggleWhitelist(blockItem.getBlock().defaultBlockState()));
+            PacketHandler.INSTANCE.sendToServer(new C2SToggleWhitelist(blockItem.getBlock().defaultBlockState()));
             playClickSound();
         }
     }

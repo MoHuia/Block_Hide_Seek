@@ -1,5 +1,6 @@
 package com.mohuia.block_hide_seek.game;
 
+import com.mohuia.block_hide_seek.client.ClientGameCache; // 确保引用了这个
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.event.GameEndEvent;
 import com.mohuia.block_hide_seek.event.GameStartEvent;
@@ -8,6 +9,7 @@ import com.mohuia.block_hide_seek.hitbox.ObbUtil;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.S2C.S2COpenSelectScreen;
 import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
+import com.mohuia.block_hide_seek.packet.S2C.S2CUpdateHudPacket; // 确保引用了这个
 import com.mohuia.block_hide_seek.world.BlockWhitelistData;
 import com.mohuia.block_hide_seek.world.ServerGameConfig;
 import net.minecraft.ChatFormatting;
@@ -42,9 +44,6 @@ public class GameLoopManager {
     private static final int FAKE_HURT_ANIM_TICKS = 10;
     private static final float FAKE_KNOCKBACK = 0.4F;
 
-    /**
-     * ✅ 供网络包判断用
-     */
     public static boolean isGameRunning() {
         return isGameRunning;
     }
@@ -62,7 +61,6 @@ public class GameLoopManager {
         ServerLevel level = starter.serverLevel();
         List<ServerPlayer> players = new ArrayList<>(level.players());
 
-        // 调试模式：单人测试
         if (players.size() == 1) {
             startDebugMode(starter, level);
             return;
@@ -102,13 +100,18 @@ public class GameLoopManager {
     }
 
     private static void startDebugMode(ServerPlayer player, ServerLevel level) {
-        isGameRunning = false;
+        // ⚠️ 修正：这里必须是 true，否则 tick() 方法会直接 return，就不会发送 HUD 包了
+        isGameRunning = true;
+        ticksRemaining = 6000; // 给个 5 分钟测试
+
         resetPlayerState(player);
         BlockWhitelistData whitelistData = BlockWhitelistData.get(level);
         List<BlockState> allowedBlocks = new ArrayList<>(whitelistData.getAllowedStates());
         if (allowedBlocks.isEmpty()) allowedBlocks.add(Blocks.CRAFTING_TABLE.defaultBlockState());
+
         makeHider(player, allowedBlocks);
-        player.sendSystemMessage(Component.literal("🛠️已进入单人调试模式").withStyle(ChatFormatting.GOLD));
+
+        player.sendSystemMessage(Component.literal("🛠️ 已进入单人调试模式 (HUD 应该显示了)").withStyle(ChatFormatting.GOLD));
     }
 
     public static void stopGame(ServerLevel level, WinnerType winner, Component reason) {
@@ -145,6 +148,11 @@ public class GameLoopManager {
         if (ticksRemaining % 20 == 0) {
             checkSeekerWinCondition(level);
         }
+
+        // ✅ 每秒同步 HUD 数据 (20 ticks)
+        if (ticksRemaining % 20 == 0) {
+            broadcastHudUpdate(level);
+        }
     }
 
     private static void checkSeekerWinCondition(ServerLevel level) {
@@ -159,42 +167,9 @@ public class GameLoopManager {
         }
     }
 
-//    // ==========================================
-//    //              玩家互动逻辑 (PVP)
-//    // ==========================================
-//
-//    public static void onPlayerAttack(ServerPlayer attacker, ServerPlayer victim) {
-//        if (!isGameRunning) return;
-//
-//        attacker.getCapability(GameDataProvider.CAP).ifPresent(atCap -> {
-//            if (!atCap.isSeeker()) return;
-//
-//            victim.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
-//                if (vicCap.isSeeker()) return;
-//
-//                boolean obbHit = isHitVictimObb(attacker, victim);
-//                if (!obbHit) return;
-//
-//                // ✅ 无敌帧内不重复扣
-//                if (isInIFrames(victim)) return;
-//
-//                // ✅ 原版攻击事件这条路径：也做同样的模拟（否则你会只扣次数但没表现）
-//                simulateVanillaLikeHit(attacker, victim,);
-//
-//                handleHiderHit(attacker, victim, vicCap);
-//            });
-//        });
-//    }
-//
-//    private static boolean isHitVictimObb(ServerPlayer attacker, ServerPlayer victim) {
-//        Vec3 origin = attacker.getEyePosition();
-//        Vec3 dir = attacker.getLookAngle().normalize();
-//        double reach = getReach(attacker);
-//
-//        return ObbUtil.getPlayerObb(victim)
-//                .map(obb -> ObbRaycast.hit(origin, dir, reach, obb))
-//                .orElse(false);
-//    }
+    // ==========================================
+    //              玩家互动逻辑 (射线检测)
+    // ==========================================
 
     private static double getReach(ServerPlayer attacker) {
         double reach = 3.5;
@@ -206,12 +181,6 @@ public class GameLoopManager {
         return reach;
     }
 
-    /**
-     * ✅ 新增：抓捕者左键触发（不依赖点到实体）
-     * - 服务端发射射线
-     * - 忽略自己
-     * - 用粒子画线 debug（可开关）
-     */
     public static void onSeekerLeftClickRaycast(ServerPlayer attacker, boolean debugParticles) {
         if (!isGameRunning) return;
 
@@ -226,23 +195,16 @@ public class GameLoopManager {
             if (debugParticles) {
                 spawnDebugRay(level, origin, dir, reach);
             }
-            System.out.println("服务端发现你点了一次左键");
-            // 找最近的、命中 OBB 的躲藏者
+
             RaycastTarget target = raycastFindClosestHiderOBB(attacker, origin, dir, reach);
 
             if (target == null) return;
 
-            // 命中才处理
             target.victim.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
                 if (vicCap.isSeeker()) return;
-
-                // ✅ 无敌帧内：不重复击退，也不扣次数
                 if (isInIFrames(target.victim)) return;
 
-                // ✅ 先模拟受击效果（击退+动画+无敌帧）
                 simulateVanillaLikeHit(attacker, target.victim);
-
-                // ✅ 再扣次数（这样无敌帧内不会瞬间耗完）
                 handleHiderHit(attacker, target.victim, vicCap);
             });
         });
@@ -250,19 +212,18 @@ public class GameLoopManager {
 
     private static RaycastTarget raycastFindClosestHiderOBB(ServerPlayer attacker, Vec3 origin, Vec3 dir, double reach) {
         ServerLevel level = attacker.serverLevel();
-
         ServerPlayer bestVictim = null;
         double bestT = Double.POSITIVE_INFINITY;
 
         for (ServerPlayer p : level.players()) {
-            if (p == attacker) continue;       // ✅ 不检测自己
+            if (p == attacker) continue;
             if (p.isSpectator()) continue;
 
             var cap = p.getCapability(GameDataProvider.CAP).orElse(null);
             if (cap == null) continue;
-            if (cap.isSeeker()) continue;      // 只抓躲藏者
+            if (cap.isSeeker()) continue;
 
-            var obbOpt = ObbUtil.getPlayerObb(p);//这里是我的第二个位置
+            var obbOpt = ObbUtil.getPlayerObb(p);
             if (obbOpt.isEmpty()) continue;
 
             double t = ObbRaycast.hitDistance(origin, dir, reach, obbOpt.get());
@@ -276,13 +237,9 @@ public class GameLoopManager {
         return new RaycastTarget(bestVictim, bestT);
     }
 
-    /**
-     * ✅ 粒子画线：沿射线每 step 刷一个粒子点
-     */
     private static void spawnDebugRay(ServerLevel level, Vec3 origin, Vec3 dirNorm, double dist) {
-        int steps = (int) Math.max(8, dist * 16); // 距离越远点越密
+        int steps = (int) Math.max(8, dist * 16);
         double step = dist / steps;
-
         for (int i = 0; i <= steps; i++) {
             Vec3 p = origin.add(dirNorm.scale(step * i));
             level.sendParticles(ParticleTypes.END_ROD, p.x, p.y, p.z, 1, 0, 0, 0, 0);
@@ -322,50 +279,28 @@ public class GameLoopManager {
         }
     }
 
-    /**
-     * 命中后先检查：无敌帧内不允许重复扣次数
-     */
     private static boolean isInIFrames(ServerPlayer victim) {
-        // invulnerableTime：原版无敌帧计时
-        // hurtTime：受击动画计时（通常 <= hurtDuration）
         return victim.invulnerableTime > 0 || victim.hurtTime > 0;
     }
 
-    /**
-     * 模拟一次“像被玩家近战打中”的效果（不扣血）
-     */
     private static void simulateVanillaLikeHit(ServerPlayer attacker, ServerPlayer victim) {
-        // 修复 1：计算击退来源向量 (攻击者 - 受害者)
-        // 这里的 d0, d1 代表 "力来自哪个方向"，原版 knockback 会自动对其取反从而推开受害者
         double d0 = attacker.getX() - victim.getX();
         double d1 = attacker.getZ() - victim.getZ();
 
-        // 兜底：如果重合，使用攻击者朝向
         while (d0 * d0 + d1 * d1 < 1.0E-4D) {
             d0 = (Math.random() - Math.random()) * 0.01D;
             d1 = (Math.random() - Math.random()) * 0.01D;
         }
 
-        // 1) 击退：传入 d0, d1 (来源方向)，原版会自动推向相反方向
         victim.knockback(FAKE_KNOCKBACK, d0, d1);
-
-        // 2) 无敌帧 + 受击动画
         victim.invulnerableTime = FAKE_IFRAMES_TICKS;
         victim.hurtTime = FAKE_HURT_ANIM_TICKS;
         victim.hurtDuration = FAKE_HURT_ANIM_TICKS;
-
-        // 3) 客户端受击红光/抖动
         victim.level().broadcastEntityEvent(victim, (byte) 2);
-
-        // 4) 音效
         victim.level().playSound(null, victim.getX(), victim.getY(), victim.getZ(),
                 SoundEvents.PLAYER_HURT, SoundSource.PLAYERS, 1.0F, 1.0F);
-
-        // 攻击者听到打击感反馈
         attacker.level().playSound(null, attacker.getX(), attacker.getY(), attacker.getZ(),
                 SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.PLAYERS, 0.8F, 1.0F);
-
-        // 5) 标记速度更新，确保客户端立刻收到击退包
         victim.hurtMarked = true;
     }
 
@@ -443,10 +378,19 @@ public class GameLoopManager {
     }
 
     private static void syncData(ServerPlayer player, boolean seeker, BlockState block) {
-        PacketHandler.INSTANCE.send(
-                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
-                new S2CSyncGameData(player.getId(), seeker, block)
-        );
+        // ✅ 升级：发送全量数据，防止重置尺寸导致变小
+        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+            PacketHandler.INSTANCE.send(
+                    PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
+                    new S2CSyncGameData(
+                            player.getId(),
+                            seeker,
+                            block,
+                            cap.getModelWidth(), cap.getModelHeight(), // 物理尺寸
+                            cap.getAABBX(), cap.getAABBY(), cap.getAABBZ() // OBB尺寸
+                    )
+            );
+        });
         player.refreshDimensions();
     }
 
@@ -456,15 +400,33 @@ public class GameLoopManager {
         }
     }
 
-    private static void playHurtSound(ServerPlayer attacker, ServerPlayer victim) {
-        // 在 victim 身上播放（所有附近玩家都听到）
-        victim.level().playSound(
-                null, // null = 广播给附近所有玩家
-                victim.getX(), victim.getY(), victim.getZ(),
-                SoundEvents.PLAYER_HURT,
-                SoundSource.PLAYERS,
-                1.0F,
-                1.0F
+    /**
+     * ✅ 修复了之前的报错：把逻辑封装在方法里
+     */
+    private static void broadcastHudUpdate(ServerLevel level) {
+        List<ClientGameCache.PlayerInfo> list = new ArrayList<>();
+
+        for (ServerPlayer p : level.players()) {
+            if (p.isSpectator()) continue;
+
+            p.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+                net.minecraft.world.item.ItemStack disguise = net.minecraft.world.item.ItemStack.EMPTY;
+                if (cap.getDisguise() != null) {
+                    disguise = new net.minecraft.world.item.ItemStack(cap.getDisguise().getBlock());
+                }
+
+                list.add(new ClientGameCache.PlayerInfo(
+                        p.getUUID(),
+                        p.getGameProfile().getName(),
+                        cap.isSeeker(),
+                        disguise
+                ));
+            });
+        }
+
+        PacketHandler.INSTANCE.send(
+                PacketDistributor.DIMENSION.with(level::dimension),
+                new S2CUpdateHudPacket(true, ticksRemaining, list)
         );
     }
 }

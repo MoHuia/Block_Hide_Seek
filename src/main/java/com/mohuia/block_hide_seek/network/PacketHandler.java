@@ -66,5 +66,8 @@ public class PacketHandler {
         INSTANCE.registerMessage(id++, C2SSetYawLock.class, C2SSetYawLock::encode, C2SSetYawLock::decode, C2SSetYawLock::handle);
         // 【新增】Caps 锁定朝向：服务端->客户端（广播同步）
         INSTANCE.registerMessage(id++, S2CSyncYawLock.class, S2CSyncYawLock::encode, S2CSyncYawLock::decode, S2CSyncYawLock::handle);
+
+        //游戏顶上HUD
+        INSTANCE.registerMessage(id++,S2CUpdateHudPacket.class,S2CUpdateHudPacket::encode,S2CUpdateHudPacket::decode,S2CUpdateHudPacket::handle);
     }
 }

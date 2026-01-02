@@ -41,6 +41,8 @@ public class BlockHuntCommand {
                 }))
                 .then(Commands.literal("block").executes(BlockHuntCommand::spawnDebugEntityFromHand))
                         .then(Commands.literal("reset").executes(BlockHuntCommand::resetPlayer))
+                        // ✅ 新增：强制显示 UI 测试
+                        .then(Commands.literal("hudtest").executes(BlockHuntCommand::testHud))
 
 //                // ✅ 新增：/bhs obb x y z
 //                .then(Commands.literal("obb")
@@ -78,6 +80,23 @@ public class BlockHuntCommand {
 //
 //        return 1;
 //    }
+
+    private static int testHud(CommandContext<CommandSourceStack> ctx) {
+        try {
+            // 1. 直接调用数据生成 (在单人模式下，服务端线程可以直接访问静态变量)
+            // 如果你在专用服务器上跑这个，可能会崩溃，但本地调试没问题
+            com.mohuia.block_hide_seek.client.ClientGameCache.generateFakeData();
+
+            // 2. 使用 ctx.getSource() 发送反馈，而不是用 Minecraft.getInstance()
+            ctx.getSource().sendSuccess(() -> Component.literal("✅ HUD 测试数据已注入！(请按ESC退出菜单查看顶部)"), false);
+
+        } catch (Exception e) {
+            // 3. 如果出错，把具体错误打印出来
+            ctx.getSource().sendFailure(Component.literal("❌ 执行出错: " + e.getMessage()));
+            e.printStackTrace(); // 打印报错堆栈到控制台
+        }
+        return 1;
+    }
 
     //  处理重置逻辑
     private static int resetPlayer(CommandContext<CommandSourceStack> ctx) {

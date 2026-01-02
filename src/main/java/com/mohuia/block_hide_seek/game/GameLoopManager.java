@@ -335,33 +335,19 @@ public class GameLoopManager {
      * 模拟一次“像被玩家近战打中”的效果（不扣血）
      */
     private static void simulateVanillaLikeHit(ServerPlayer attacker, ServerPlayer victim) {
-        // ✅ 方向：victim 远离 attacker（以水平为主）
-        Vec3 away = victim.position().subtract(attacker.position());
+        // 修复 1：计算击退来源向量 (攻击者 - 受害者)
+        // 这里的 d0, d1 代表 "力来自哪个方向"，原版 knockback 会自动对其取反从而推开受害者
+        double d0 = attacker.getX() - victim.getX();
+        double d1 = attacker.getZ() - victim.getZ();
 
-        // 只取水平分量，避免向上/向下看导致击退奇怪
-        Vec3 horiz = new Vec3(away.x, 0.0, away.z);
-        double len = horiz.length();
-
-        // 兜底：如果正好重叠（len=0），用 attacker 朝向
-        double xRatio, zRatio;
-        if (len < 1e-6) {
-            Vec3 look = attacker.getLookAngle();
-            Vec3 lookHoriz = new Vec3(look.x, 0.0, look.z);
-            double l2 = lookHoriz.length();
-            if (l2 < 1e-6) {
-                xRatio = 0.0;
-                zRatio = 1.0;
-            } else {
-                xRatio = lookHoriz.x / l2;
-                zRatio = lookHoriz.z / l2;
-            }
-        } else {
-            xRatio = horiz.x / len;
-            zRatio = horiz.z / len;
+        // 兜底：如果重合，使用攻击者朝向
+        while (d0 * d0 + d1 * d1 < 1.0E-4D) {
+            d0 = (Math.random() - Math.random()) * 0.01D;
+            d1 = (Math.random() - Math.random()) * 0.01D;
         }
 
-        // 1) 击退
-        victim.knockback(FAKE_KNOCKBACK, xRatio, zRatio);
+        // 1) 击退：传入 d0, d1 (来源方向)，原版会自动推向相反方向
+        victim.knockback(FAKE_KNOCKBACK, d0, d1);
 
         // 2) 无敌帧 + 受击动画
         victim.invulnerableTime = FAKE_IFRAMES_TICKS;
@@ -371,22 +357,15 @@ public class GameLoopManager {
         // 3) 客户端受击红光/抖动
         victim.level().broadcastEntityEvent(victim, (byte) 2);
 
-        // 4) 音效（更像原版的两段反馈）
-        // 受击音（在 victim 身上播放，附近人都能听见）
-        victim.level().playSound(null,
-                victim.getX(), victim.getY(), victim.getZ(),
-                SoundEvents.PLAYER_HURT, SoundSource.PLAYERS,
-                1.0F, 1.0F
-        );
+        // 4) 音效
+        victim.level().playSound(null, victim.getX(), victim.getY(), victim.getZ(),
+                SoundEvents.PLAYER_HURT, SoundSource.PLAYERS, 1.0F, 1.0F);
 
-        // 击退/命中反馈音（在 attacker 身上播放）
-        attacker.level().playSound(null,
-                attacker.getX(), attacker.getY(), attacker.getZ(),
-                SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.PLAYERS,
-                0.8F, 1.0F
-        );
+        // 攻击者听到打击感反馈
+        attacker.level().playSound(null, attacker.getX(), attacker.getY(), attacker.getZ(),
+                SoundEvents.PLAYER_ATTACK_KNOCKBACK, SoundSource.PLAYERS, 0.8F, 1.0F);
 
-        // 5) 速度同步更及时
+        // 5) 标记速度更新，确保客户端立刻收到击退包
         victim.hurtMarked = true;
     }
 
@@ -409,7 +388,7 @@ public class GameLoopManager {
         player.getInventory().clearOrCountMatchingItems(p -> true, -1, player.inventoryMenu.getCraftSlots());
 
         player.connection.send(new ClientboundSetTitlesAnimationPacket(10, 60, 20));
-        Component titleText = Component.literal("👹 你成为了抓捕者！")
+        Component titleText = Component.literal("你成为了抓捕者！")
                 .withStyle(ChatFormatting.DARK_RED, ChatFormatting.BOLD);
         player.connection.send(new ClientboundSetTitleTextPacket(titleText));
 

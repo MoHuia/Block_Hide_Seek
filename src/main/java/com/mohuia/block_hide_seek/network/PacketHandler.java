@@ -38,15 +38,19 @@ public class PacketHandler {
 
     public static void register() {
         int id = 0;
+        //游戏运行配置相关
+        INSTANCE.registerMessage(id++, C2SToggleWhitelist.class, C2SToggleWhitelist::encode, C2SToggleWhitelist::decode, C2SToggleWhitelist::handle);
+        INSTANCE.registerMessage(id++, S2CSyncConfig.class, S2CSyncConfig::encode, S2CSyncConfig::decode, S2CSyncConfig::handle);
+
+
         INSTANCE.registerMessage(id++, S2COpenSelectScreen.class, S2COpenSelectScreen::encode, S2COpenSelectScreen::decode, S2COpenSelectScreen::handle);
         INSTANCE.registerMessage(id++, S2CSyncGameData.class, S2CSyncGameData::encode, S2CSyncGameData::decode, S2CSyncGameData::handle);
 
         // 配置相关
-        INSTANCE.registerMessage(id++, C2SToggleWhitelist.class, C2SToggleWhitelist::encode, C2SToggleWhitelist::decode, C2SToggleWhitelist::handle);
         INSTANCE.registerMessage(id++, C2SRequestConfig.class, C2SRequestConfig::encode, C2SRequestConfig::decode, C2SRequestConfig::handle);
         INSTANCE.registerMessage(id++, S2COpenConfigScreen.class, S2COpenConfigScreen::encode, S2COpenConfigScreen::decode, S2COpenConfigScreen::handle);
         INSTANCE.registerMessage(id++, C2SUpdateGameSettings.class, C2SUpdateGameSettings::encode, C2SUpdateGameSettings::decode, C2SUpdateGameSettings::handle);
-        INSTANCE.registerMessage(id++, S2CSyncConfig.class, S2CSyncConfig::encode, S2CSyncConfig::decode, S2CSyncConfig::handle);
+        INSTANCE.registerMessage(id++, C2SSelectBlock.class, C2SSelectBlock::encode, C2SSelectBlock::decode, C2SSelectBlock::handle);
 
         // 【新增】静默更新广播
         INSTANCE.registerMessage(id++, S2CUpdateConfigGui.class, S2CUpdateConfigGui::encode, S2CUpdateConfigGui::decode, S2CUpdateConfigGui::handle);

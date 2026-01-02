@@ -1,11 +1,13 @@
 package com.mohuia.block_hide_seek.packet.C2S;
 
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import com.mohuia.block_hide_seek.packet.S2C.S2CSyncConfig;
 import com.mohuia.block_hide_seek.world.ServerGameConfig;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkEvent;
+import net.minecraftforge.network.PacketDistributor;
 
 import java.util.function.Supplier;
 
@@ -20,26 +22,35 @@ public class C2SUpdateGameSettings {
         this.seekers = seekers;
     }
 
-    public static void encode( C2SUpdateGameSettings msg, FriendlyByteBuf buf) {
+    public static void encode(C2SUpdateGameSettings msg, FriendlyByteBuf buf) {
         buf.writeInt(msg.duration);
         buf.writeInt(msg.hits);
         buf.writeInt(msg.seekers);
     }
 
-    public static  C2SUpdateGameSettings decode(FriendlyByteBuf buf) {
-        return new  C2SUpdateGameSettings(buf.readInt(), buf.readInt(), buf.readInt());
+    public static C2SUpdateGameSettings decode(FriendlyByteBuf buf) {
+        return new C2SUpdateGameSettings(buf.readInt(), buf.readInt(), buf.readInt());
     }
 
-    public static void handle( C2SUpdateGameSettings msg, Supplier<NetworkEvent.Context> ctx) {
+    public static void handle(C2SUpdateGameSettings msg, Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
             ServerPlayer player = ctx.get().getSender();
+            // 权限检查：只有OP/管理员可以执行
             if (player != null && player.hasPermissions(2)) {
+
+                // 1. 更新服务端数据
                 ServerGameConfig config = ServerGameConfig.get(player.level());
                 config.gameDurationSeconds = msg.duration;
                 config.hitsToConvert = msg.hits;
                 config.seekerCount = msg.seekers;
-                config.setDirty();
+                config.setDirty(); // 标记存档为脏数据
+
                 player.sendSystemMessage(Component.literal("✅ 游戏设置已更新！"));
+
+                // 2. 广播给所有玩家，更新他们的客户端缓存
+                // S2CSyncConfig 正好是接收 (int, int, int) 的包
+                PacketHandler.INSTANCE.send(PacketDistributor.ALL.noArg(),
+                        new S2CSyncConfig(msg.duration, msg.hits, msg.seekers));
             }
         });
         ctx.get().setPacketHandled(true);

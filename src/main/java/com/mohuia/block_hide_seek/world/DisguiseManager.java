@@ -61,4 +61,47 @@ public class DisguiseManager {
             // player.sendSystemMessage(Component.literal("✨ 变身成功: " + blockState.getBlock().getName().getString()));
         });
     }
+
+    /**
+     * 清除伪装，变回普通人
+     */
+    public static void clearDisguise(ServerPlayer player) {
+        if (player == null) return;
+
+        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+            // 1. 清除伪装数据
+            cap.setDisguise(null);
+            // 这里看需求：是变成 Seeker 还是变成无伪装的 Hider？
+            // 默认保持原有阵营，或者重置为 Hider
+            // cap.setSeeker(false);
+
+            // 2. 恢复原版玩家尺寸 (0.6 x 1.8)
+            // OBB 尺寸也跟随恢复，否则如果 OBB 很大，debug 看起来会很怪
+            float defW = 0.6f;
+            float defH = 1.8f;
+            cap.setModelSize(defW, defH);
+            cap.setAABBSize(defW, defH, defW);
+
+            // 3. 同步
+            PacketHandler.INSTANCE.send(
+                    PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
+                    new S2CSyncGameData(
+                            player.getId(),
+                            cap.isSeeker(), // 保持当前阵营
+                            null,           // null 代表清除伪装
+                            defW, defH,
+                            defW, defH, defW
+                    )
+            );
+
+            // 4. 刷新
+            player.refreshDimensions();
+
+            // 5. 音效
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.ARMOR_EQUIP_GENERIC, SoundSource.PLAYERS, 1.0f, 1.0f);
+
+            player.sendSystemMessage(Component.literal("✨ 已解除伪装，恢复原样！"));
+        });
+    }
 }

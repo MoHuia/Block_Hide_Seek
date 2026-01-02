@@ -11,6 +11,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.player.AttackEntityEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -58,6 +59,45 @@ public class CommonEvents {
                 newCap.copyFrom(oldCap);
             });
         });
+    }
+
+    // ==========================================
+    // 2. 游戏交互逻辑 (修复攻击判定冲突)
+    // ==========================================
+
+    /**
+     * ✅ 核心修复：拦截原版攻击逻辑
+     * 问题描述：当抓捕者离躲藏者很近时，鼠标左键可能直接点中原版实体 Hitbox。
+     * 这会导致：
+     * 1. 触发原版扣血/击退（不受控制）。
+     * 2. 绕过了我们的 OBB 计数逻辑。
+     *
+     * 解决方案：如果是 Seeker 打 Hider，直接取消原版事件。
+     * 所有的判定全权交给 C2SAttackRaycast -> GameLoopManager 处理。
+     */
+    @SubscribeEvent
+    public static void onPlayerAttackEntity(AttackEntityEvent event) {
+        // 如果游戏没开始，或者是客户端侧，不管
+        if (!GameLoopManager.isGameRunning() || event.getEntity().level().isClientSide) return;
+
+        // 确保攻击者是玩家，受害者也是玩家
+        if (!(event.getTarget() instanceof Player victim)) return;
+        Player attacker = event.getEntity();
+
+        // 检查身份
+        boolean isSeeker = attacker.getCapability(GameDataProvider.CAP)
+                .map(data -> data.isSeeker())
+                .orElse(false);
+
+        boolean isHider = victim.getCapability(GameDataProvider.CAP)
+                .map(data -> !data.isSeeker())
+                .orElse(false);
+
+        // 如果是 抓捕者 试图攻击 躲藏者
+        if (isSeeker && isHider) {
+            // 取消事件！禁止原版判定生效
+            event.setCanceled(true);
+        }
     }
 
     // ==========================================

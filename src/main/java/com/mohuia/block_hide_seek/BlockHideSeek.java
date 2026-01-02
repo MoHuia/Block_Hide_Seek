@@ -1,7 +1,7 @@
 package com.mohuia.block_hide_seek;
 
 import com.mohuia.block_hide_seek.client.ObbDebugRender;
-//import com.mohuia.block_hide_seek.command.BlockHuntCommand;
+import com.mohuia.block_hide_seek.command.BlockHuntCommand;
 import com.mohuia.block_hide_seek.item.ModItems; // <--- 导入刚才写的注册类
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mojang.logging.LogUtils;
@@ -63,9 +63,9 @@ public class BlockHideSeek {
         });
     }
 
-//    @SubscribeEvent
-//    public void onRegisterCommands(RegisterCommandsEvent event) {
-//        BlockHuntCommand.register(event.getDispatcher()); // <--- 注册指令
-//    }
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        BlockHuntCommand.register(event.getDispatcher()); // <--- 注册指令
+    }
 
 }

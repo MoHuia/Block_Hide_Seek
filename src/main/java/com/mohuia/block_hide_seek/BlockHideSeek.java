@@ -1,6 +1,6 @@
 package com.mohuia.block_hide_seek;
 
-import com.mohuia.block_hide_seek.client.BlockHuntHud;
+import com.mohuia.block_hide_seek.client.hud.BlockHuntHud;
 import com.mohuia.block_hide_seek.client.ObbDebugRender;
 import com.mohuia.block_hide_seek.command.BlockHuntCommand;
 import com.mohuia.block_hide_seek.item.ModItems;

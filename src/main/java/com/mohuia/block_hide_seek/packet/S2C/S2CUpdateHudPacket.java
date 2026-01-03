@@ -1,15 +1,13 @@
 package com.mohuia.block_hide_seek.packet.S2C;
 
-import com.mohuia.block_hide_seek.client.ClientGameCache;
+import com.mohuia.block_hide_seek.client.hud.ClientGameCache;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.function.Supplier;
 
 public class S2CUpdateHudPacket {

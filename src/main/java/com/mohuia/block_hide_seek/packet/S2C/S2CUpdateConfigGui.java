@@ -1,6 +1,6 @@
 package com.mohuia.block_hide_seek.packet.S2C;
 
-import com.mohuia.block_hide_seek.client.ConfigScreen;
+import com.mohuia.block_hide_seek.client.config.ConfigScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.level.block.Block;

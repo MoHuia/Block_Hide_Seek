@@ -1,4 +1,4 @@
-package com.mohuia.block_hide_seek.client;
+package com.mohuia.block_hide_seek.client.config;
 
 public class ClientConfigCache {
     public static int duration = 300;

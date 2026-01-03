@@ -1,5 +1,6 @@
-package com.mohuia.block_hide_seek.client;
+package com.mohuia.block_hide_seek.client.hud;
 
+import com.mohuia.block_hide_seek.client.hud.ClientGameCache; // 确保导入正确的 Cache 类
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -26,18 +27,23 @@ public class BlockHuntHud implements IGuiOverlay {
     private static final int TOP_MARGIN = 3;       // 顶部边距
     private static final int TIME_HEIGHT = 18;     // 时间条高度
     private static final int NAME_BOX_HEIGHT = 5;  // 名字框高度
-    private static final int DISGUISE_BOX_HEIGHT = 18; // ⚡ 增高了方块底座
+    private static final int DISGUISE_BOX_HEIGHT = 18; // 方块底座高度
 
     private static final int CENTER_BOX_HALF_WIDTH = 25;
 
-    // 🎨 鲜艳色板
+    // 🎨 鲜艳色板 (在线状态)
     private static final int[] PLAYER_COLORS = {
             0xFFE74C3C, 0xFFE67E22, 0xFFF1C40F, 0xFF2ECC71, 0xFF1ABC9C,
             0xFF3498DB, 0xFF9B59B6, 0xFFE91E63, 0xFF16A085, 0xFF2C3E50
     };
 
+    // 💀 离线状态颜色配置
+    private static final int OFFLINE_BORDER_COLOR = 0xFF444444; // 深灰色边框
+    private static final int OFFLINE_OVERLAY_COLOR = 0xB0111111; // 半透明黑灰遮罩
+
     @Override
     public void render(ForgeGui gui, GuiGraphics guiGraphics, float partialTick, int screenWidth, int screenHeight) {
+        // ✅ 只有游戏运行时显示
         if (!ClientGameCache.isGameRunning) return;
 
         Minecraft mc = Minecraft.getInstance();
@@ -75,6 +81,9 @@ public class BlockHuntHud implements IGuiOverlay {
 
             ClientGameCache.PlayerInfo p = players.get(i);
 
+            // ⚡⚡⚡ 判断是否在线 ⚡⚡⚡
+            boolean isOnline = isPlayerOnline(mc, p);
+
             // 坐标计算
             int x;
             if (isLeft) {
@@ -90,9 +99,13 @@ public class BlockHuntHud implements IGuiOverlay {
             // 1. 名字框
             drawPlayerNameBox(g, mc, p.name, x, nameY);
 
-            // 2. 头像边框
-            int colorIndex = i % PLAYER_COLORS.length;
-            int borderColor = PLAYER_COLORS[colorIndex];
+            // 2. 头像边框 (在线用彩色，离线用灰色)
+            int borderColor;
+            if (isOnline) {
+                borderColor = PLAYER_COLORS[i % PLAYER_COLORS.length];
+            } else {
+                borderColor = OFFLINE_BORDER_COLOR;
+            }
             g.fill(x, avatarY, x + BOX_WIDTH, avatarY + BOX_WIDTH, borderColor);
 
             // 3. 头像
@@ -104,55 +117,80 @@ public class BlockHuntHud implements IGuiOverlay {
                 drawDisguiseBox(g, p.disguiseItem, x, disguiseY);
             }
 
-            // ⚡⚡⚡ 5. 自己专属高亮 (最后绘制，覆盖在最上层) ⚡⚡⚡
-            if (mc.player != null && mc.player.getUUID().equals(p.uuid)) {
-                // 计算包裹的总高度：名字 + 头像 + (如果有方块就加方块高度)
+            // 5. 自己专属高亮 (仅当在线 且 是自己时显示)
+            boolean isSelf = mc.player != null && mc.player.getUUID().equals(p.uuid);
+            if (isOnline && isSelf) {
                 int totalHeight = NAME_BOX_HEIGHT + BOX_WIDTH;
                 if (hasDisguise) {
                     totalHeight += DISGUISE_BOX_HEIGHT;
                 }
-
-                // 绘制特殊边框
                 drawSelfHighlight(g, x, nameY, BOX_WIDTH, totalHeight, borderColor);
             }
+
+            // ⚡⚡⚡ 6. 离线遮罩 (关键步骤) ⚡⚡⚡
+            // 如果判定离线，在整个条目最上方画一个半透明黑灰方块
+            if (!isOnline) {
+                int totalHeight = NAME_BOX_HEIGHT + BOX_WIDTH + (hasDisguise ? DISGUISE_BOX_HEIGHT : 0);
+
+                g.pose().pushPose();
+                g.pose().translate(0, 0, 300); // z=300 确保盖在所有东西上面
+                g.fill(x, nameY, x + BOX_WIDTH, nameY + totalHeight, OFFLINE_OVERLAY_COLOR);
+                g.pose().popPose();
+            }
         }
+    }
+
+    /**
+     * 判断玩家是否在线
+     * 逻辑：去客户端的网络连接列表里查是否有这个UUID
+     */
+    private boolean isPlayerOnline(Minecraft mc, ClientGameCache.PlayerInfo p) {
+        // 如果使用了上一条回答中的调试字段 forceOffline
+        if (p.forceOffline) return false;
+
+        // 单人游戏特判 (防止单人测试时没有网络信息的假人全变灰)
+        // 如果是单人且网络列表为空，暂时视为在线
+        if (mc.isSingleplayer() && mc.getConnection() == null) return true;
+
+        if (mc.getConnection() != null) {
+            // 真实逻辑：查表
+            // 如果查不到 Info，说明玩家不在服务器里 -> 离线
+            // 注意：如果是 generateFakeData 生成的随机UUID假人，这里会查不到，导致变灰。
+            // 为了让你在单人下能看假人，加一个 isSingleplayer 的宽松判断。
+            if (mc.isSingleplayer()) return true;
+
+            return mc.getConnection().getPlayerInfo(p.uuid) != null;
+        }
+        return false;
     }
 
     /**
      * ⚡ 绘制玩家自己的高亮边框 (渐变 + 底部圆角)
      */
     private void drawSelfHighlight(GuiGraphics g, int x, int y, int w, int h, int baseColor) {
-        // 1. 计算颜色
-        // baseColor 是深色 (四周深)
-        // lightColor 是浅色 (中间浅) -> 我们把 baseColor 混合白色，变得更亮
         int r = (baseColor >> 16) & 0xFF;
         int gr = (baseColor >> 8) & 0xFF;
         int b = (baseColor) & 0xFF;
-        // 简单提亮算法：向 255 靠近
+        // 提亮
         int lr = Math.min(255, r + 100);
         int lg = Math.min(255, gr + 100);
         int lb = Math.min(255, b + 100);
         int lightColor = (0xFF << 24) | (lr << 16) | (lg << 8) | lb;
 
-        // 2. 绘制左边框 (垂直渐变：深 -> 浅 -> 深)
-        // 上半段
+        // 左边框
         g.fillGradient(x, y, x + 1, y + h / 2, baseColor, lightColor);
-        // 下半段 (注意高度 -1，为了圆角)
         g.fillGradient(x, y + h / 2, x + 1, y + h - 1, lightColor, baseColor);
 
-        // 3. 绘制右边框 (同上)
+        // 右边框
         g.fillGradient(x + w - 1, y, x + w, y + h / 2, baseColor, lightColor);
         g.fillGradient(x + w - 1, y + h / 2, x + w, y + h - 1, lightColor, baseColor);
 
-        // 4. 绘制上边框 (水平渐变：深 -> 浅 -> 深)
+        // 上边框
         g.fillGradient(x, y, x + w / 2, y + 1, baseColor, lightColor);
         g.fillGradient(x + w / 2, y, x + w, y + 1, lightColor, baseColor);
 
-        // 5. 绘制下边框 (圆角处理：左右各缩进 1px)
-        // 颜色全深，或者微渐变
+        // 下边框 (圆角)
         g.fill(x + 1, y + h - 1, x + w - 1, y + h, baseColor);
-
-        // *注*：左下角(x, y+h-1) 和 右下角(x+w-1, y+h-1) 故意不画，形成 1px 的缺口，模拟圆角
     }
 
     private void drawDisguiseBox(GuiGraphics g, ItemStack item, int x, int y) {

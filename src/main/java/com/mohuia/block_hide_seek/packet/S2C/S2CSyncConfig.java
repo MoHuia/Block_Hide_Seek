@@ -1,6 +1,6 @@
 package com.mohuia.block_hide_seek.packet.S2C;
 
-import com.mohuia.block_hide_seek.client.ClientConfigCache;
+import com.mohuia.block_hide_seek.client.config.ClientConfigCache;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.DistExecutor;

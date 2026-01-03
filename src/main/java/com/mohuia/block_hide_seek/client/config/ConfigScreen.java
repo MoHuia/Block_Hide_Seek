@@ -1,4 +1,4 @@
-package com.mohuia.block_hide_seek.client;
+package com.mohuia.block_hide_seek.client.config;
 
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.C2S.C2SToggleWhitelist;

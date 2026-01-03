@@ -1,23 +1,17 @@
 package com.mohuia.block_hide_seek.command;
 
+import com.mohuia.block_hide_seek.client.hud.ClientGameCache;
 import com.mohuia.block_hide_seek.game.WinnerType;
 import com.mohuia.block_hide_seek.packet.S2C.S2CRequestModelData;
-import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
 import com.mohuia.block_hide_seek.world.DisguiseManager;
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.context.CommandContext;
-import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.network.PacketDistributor;
 
@@ -85,7 +79,7 @@ public class BlockHuntCommand {
         try {
             // 1. 直接调用数据生成 (在单人模式下，服务端线程可以直接访问静态变量)
             // 如果你在专用服务器上跑这个，可能会崩溃，但本地调试没问题
-            com.mohuia.block_hide_seek.client.ClientGameCache.generateFakeData();
+            ClientGameCache.generateFakeData();
 
             // 2. 使用 ctx.getSource() 发送反馈，而不是用 Minecraft.getInstance()
             ctx.getSource().sendSuccess(() -> Component.literal("✅ HUD 测试数据已注入！(请按ESC退出菜单查看顶部)"), false);

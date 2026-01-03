@@ -1,5 +1,6 @@
 package com.mohuia.block_hide_seek.client;
 
+import com.mohuia.block_hide_seek.client.config.ConfigScreen;
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;

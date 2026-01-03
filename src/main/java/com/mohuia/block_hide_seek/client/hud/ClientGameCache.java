@@ -1,4 +1,4 @@
-package com.mohuia.block_hide_seek.client;
+package com.mohuia.block_hide_seek.client.hud;
 
 import net.minecraft.client.Minecraft; // ✅ 必须导入这个才能获取“我”
 import net.minecraft.world.item.ItemStack;
@@ -17,6 +17,7 @@ public class ClientGameCache {
         public String name;
         public boolean isSeeker;
         public ItemStack disguiseItem;
+        public boolean forceOffline = false;
 
         public PlayerInfo(UUID uuid, String name, boolean isSeeker, ItemStack disguiseItem) {
             this.uuid = uuid;
@@ -56,7 +57,7 @@ public class ClientGameCache {
         hiders.clear();
         seekers.clear();
 
-        // 1. --- 关键：添加你自己 ---
+        //关键：添加你自己
         var localPlayer = Minecraft.getInstance().player;
         if (localPlayer != null) {
             hiders.add(new PlayerInfo(
@@ -66,8 +67,14 @@ public class ClientGameCache {
                     new ItemStack(Items.DIAMOND_BLOCK) // 你的伪装是钻石块
             ));
         }
+        //添加 Bot 1 (假装它是在线的)
+        hiders.add(new PlayerInfo(UUID.randomUUID(), "Bot_Online", false, new ItemStack(Items.CRAFTING_TABLE)));
+        //添加 Bot 2 (假装它掉线了！测试灰色效果)
+        var offlineBot = new PlayerInfo(UUID.randomUUID(), "Bot_Offline", false, new ItemStack(Items.TNT));
+        offlineBot.forceOffline = true; // 标记为离线
+        hiders.add(offlineBot);
 
-        // 2. 添加几个假 Hider 凑数
+        //添加几个假 Hider 凑数
         for (int i = 1; i <= 4; i++) {
             hiders.add(new PlayerInfo(
                     UUID.randomUUID(),
@@ -77,7 +84,7 @@ public class ClientGameCache {
             ));
         }
 
-        // 3. 添加几个假 Seeker
+        //添加几个假 Seeker
         for (int i = 1; i <= 3; i++) {
             seekers.add(new PlayerInfo(
                     UUID.randomUUID(),

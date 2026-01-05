@@ -23,4 +23,10 @@ description='''一个有趣的方块躲猫猫模组'''
     versionRange="${minecraft_version_range}"
     ordering="NONE"
     side="BOTH"
+[[dependencies.block_hide_seek]] # 这里写主模组的 modId
+modId = "map_extra"          # 这里写前置模组的 modId (代码里的那个，不是仓库名)
+mandatory = true             # true = 必须安装
+versionRange = "[1.0,)"      # 版本范围
+ordering = "BEFORE"          # 让前置先加载
+side = "BOTH"
 

@@ -20,6 +20,8 @@ public class PacketHandler {
         INSTANCE.registerMessage(id++, C2SToggleWhitelist.class, C2SToggleWhitelist::encode, C2SToggleWhitelist::decode, C2SToggleWhitelist::handle);
         INSTANCE.registerMessage(id++, S2CSyncConfig.class, S2CSyncConfig::encode, S2CSyncConfig::decode, S2CSyncConfig::handle);
 
+        INSTANCE.registerMessage(id++, S2CSyncMapTags.class, S2CSyncMapTags::encode, S2CSyncMapTags::decode, S2CSyncMapTags::handle);
+        INSTANCE.registerMessage(id++, C2SRequestMapTags.class, C2SRequestMapTags::encode, C2SRequestMapTags::decode, C2SRequestMapTags::handle);
 
         INSTANCE.registerMessage(id++, S2COpenSelectScreen.class, S2COpenSelectScreen::encode, S2COpenSelectScreen::decode, S2COpenSelectScreen::handle);
         INSTANCE.registerMessage(id++, S2CSyncGameData.class, S2CSyncGameData::encode, S2CSyncGameData::decode, S2CSyncGameData::handle);

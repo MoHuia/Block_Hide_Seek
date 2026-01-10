@@ -67,13 +67,20 @@ mixin {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
+    mavenLocal()
 
+    maven {
+        url "https://cursemaven.com"
+        content { includeGroup "curse.maven" }
+    }
 }
 
 dependencies {
 
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     annotationProcessor "org.spongepowered:mixin:${mixin_version}:processor"
+
+    implementation fg.deobf('com.mapextra:map_extra:1.0.0')
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -100,19 +107,11 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Title'    : project.name,
                 'Implementation-Version'  : project.jar.archiveVersion,
                 'Implementation-Vendor'   : mod_authors,
-                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
         ])
     }
 
     finalizedBy 'reobfJar'
-    finalizedBy 'copyJarToRuntimeMods'   //  自动复制
-}
-
-tasks.register('copyJarToRuntimeMods', Copy) {
-    dependsOn tasks.named('jar')
-
-    from(tasks.named('jar').get().archiveFile)
-    into file("D:\\魔法PVP-先行测试版\\.minecraft\\versions\\魔法PVP-先行测试版\\mods")
 }
 
 publishing {

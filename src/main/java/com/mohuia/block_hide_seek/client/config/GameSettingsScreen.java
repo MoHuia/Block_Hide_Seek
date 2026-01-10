@@ -1,5 +1,6 @@
 package com.mohuia.block_hide_seek.client.config;
 
+import com.mohuia.block_hide_seek.components.ScrollableDropdown;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.C2S.C2SRequestMapTags;
 import com.mohuia.block_hide_seek.packet.C2S.C2SUpdateGameSettings;

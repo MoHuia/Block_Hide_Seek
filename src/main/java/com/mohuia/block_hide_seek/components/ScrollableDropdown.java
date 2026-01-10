@@ -1,4 +1,4 @@
-package com.mohuia.block_hide_seek.client.config;
+package com.mohuia.block_hide_seek.components;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;

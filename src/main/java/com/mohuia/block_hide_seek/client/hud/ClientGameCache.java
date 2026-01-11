@@ -18,6 +18,9 @@ public class ClientGameCache {
         public boolean isSeeker;
         public ItemStack disguiseItem;
         public boolean forceOffline = false;
+        public long revealDeadline = 0;
+        //用于方块显示动画,0.0完全隐藏,1.0完全释放
+        public float revealAnim = 0.0f;
 
         public PlayerInfo(UUID uuid, String name, boolean isSeeker, ItemStack disguiseItem) {
             this.uuid = uuid;
@@ -31,19 +34,44 @@ public class ClientGameCache {
     public static List<PlayerInfo> seekers = new ArrayList<>();
 
     // ✅ 必须保留这个方法，不然 Packet 会报错
-    public static void update(boolean running, int time, List<PlayerInfo> allPlayers) {
+    public static void update(boolean running, int time, List<PlayerInfo> newPlayers) {
         isGameRunning = running;
         timeRemaining = time;
+
+        // 1. 备份旧的计时器数据
+        // 因为 HUD 包不包含 revealDeadline，如果直接覆盖，倒计时就没了
+        List<PlayerInfo> oldHiders = new ArrayList<>(hiders);
+
         hiders.clear();
         seekers.clear();
 
-        if (allPlayers != null) {
-            for (PlayerInfo p : allPlayers) {
+        if (newPlayers != null) {
+            for (PlayerInfo p : newPlayers) {
+                // 尝试从旧列表里找回倒计时
+                for (PlayerInfo old : oldHiders) {
+                    if (old.uuid.equals(p.uuid)) {
+                        p.revealDeadline = old.revealDeadline; // 继承倒计时
+                        break;
+                    }
+                }
+
                 if (p.isSeeker) {
                     seekers.add(p);
                 } else {
                     hiders.add(p);
                 }
+            }
+        }
+    }
+
+    //显示躲藏者方块
+    public static void revealDisguise(UUID targetUUID, int durationMs) {
+        long deadline = System.currentTimeMillis() + durationMs;
+        // 在躲藏者列表里找
+        for (PlayerInfo p : hiders) {
+            if (p.uuid.equals(targetUUID)) {
+                p.revealDeadline = deadline;
+                return;
             }
         }
     }

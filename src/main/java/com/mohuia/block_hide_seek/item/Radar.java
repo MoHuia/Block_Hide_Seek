@@ -2,7 +2,9 @@ package com.mohuia.block_hide_seek.item;
 
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.C2S.C2SRadarScanRequest;
+import com.mohuia.block_hide_seek.packet.S2C.S2CRevealDisguise;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
@@ -60,6 +62,11 @@ public class Radar extends Item {
                 // 播放声音（自己听到）
                 level.playSound(null, player.getX(), player.getY(), player.getZ(),
                         SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.PLAYERS, 0.3F, 1.0F);
+
+                PacketHandler.sendToPlayer(
+                        new S2CRevealDisguise(nearestTarget.getUUID(), 3000), // 3000ms = 3秒
+                        (ServerPlayer) player
+                );
 
                 // 给被发现的人发消息（可选）
                 nearestTarget.displayClientMessage(

@@ -1,6 +1,6 @@
 package com.mohuia.block_hide_seek.item;
 
-import com.mapextra.item.Radar;
+import com.mohuia.block_hide_seek.item.Radar;
 import com.mohuia.block_hide_seek.BlockHideSeek;
 import com.mohuia.block_hide_seek.item.SeekerWandItem; // 假设你之前创建的手杖类在这个包
 import net.minecraft.core.registries.Registries;

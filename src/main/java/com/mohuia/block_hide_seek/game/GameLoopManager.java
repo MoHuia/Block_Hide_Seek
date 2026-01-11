@@ -2,16 +2,18 @@ package com.mohuia.block_hide_seek.game;
 
 import com.mohuia.block_hide_seek.client.hud.ClientGameCache;
 import com.mohuia.block_hide_seek.data.GameDataProvider;
+import com.mohuia.block_hide_seek.entity.DecoyEntity; // ✅ 导入替身实体
 import com.mohuia.block_hide_seek.event.GameEndEvent;
 import com.mohuia.block_hide_seek.event.GameStartEvent;
 import com.mohuia.block_hide_seek.hitbox.ObbRaycast;
 import com.mohuia.block_hide_seek.hitbox.ObbUtil;
+import com.mohuia.block_hide_seek.hitbox.VirtualOBB; // ✅ 导入 OBB 类
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.S2C.S2COpenSelectScreen;
 import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
 import com.mohuia.block_hide_seek.packet.S2C.S2CUpdateHudPacket;
 import com.mohuia.block_hide_seek.world.BlockWhitelistData;
-import com.mohuia.block_hide_seek.world.MapExtraIntegration; // ✅ 改用集成类
+import com.mohuia.block_hide_seek.world.MapExtraIntegration;
 import com.mohuia.block_hide_seek.world.ServerGameConfig;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -26,6 +28,8 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.entity.EntityTypeTest;
+import net.minecraft.world.phys.AABB; // ✅ 导入 AABB
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.common.MinecraftForge;
@@ -34,6 +38,7 @@ import net.minecraftforge.network.PacketDistributor;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional; // ✅ 导入 Optional
 
 /**
  * 游戏核心循环管理器
@@ -44,38 +49,30 @@ public class GameLoopManager {
     //剩余时间，默认0
     private static int ticksRemaining = 0;
     //受击模拟常量
-    //伪造的无敌帧，0.5s，防止被秒杀，10 tick = 0.5s
     private static final int FAKE_IFRAMES_TICKS = 10;
-    //伪造受伤动画时长，0.5s
     private static final int FAKE_HURT_ANIM_TICKS = 10;
-    //伪造击退力度
     private static final float FAKE_KNOCKBACK = 0.4F;
 
-    //标准的getter获取方法，获取当前游戏状态
     public static boolean isGameRunning() {
         return isGameRunning;
     }
 
     //              ----游戏流程控制----
     public static void startGame(ServerPlayer starter) {
-        //防止游戏重复开始
         if (isGameRunning) {
             starter.sendSystemMessage(Component.literal("❌ 游戏已经在进行中了！"));
             return;
         }
-        //获取服务器当前的地图世界
         ServerLevel level = starter.serverLevel();
-        //获取当前世界的所有玩家列表
         List<ServerPlayer> players = new ArrayList<>(level.players());
-        //如果玩家只有一个人，进入调试模式
+
         if (players.size() == 1) {
             startDebugMode(starter, level);
             return;
         }
-        //读取游戏配置文件
+
         ServerGameConfig config = ServerGameConfig.get(level);
 
-        //人数检查
         if (players.size() < 2) {
             starter.sendSystemMessage(Component.literal("❌ 人数不足，至少需要 2 人！"));
             return;
@@ -84,8 +81,9 @@ public class GameLoopManager {
             starter.sendSystemMessage(Component.literal("❌ 抓捕者人数必须小于总人数！"));
             return;
         }
+        // ✅ 游戏开始前清理上一局残留的诱饵
+        cleanupDecoys(level);
 
-        //正式开始游戏
         isGameRunning = true;
         ticksRemaining = config.gameDurationSeconds * 20;
         resetAllPlayers(level);
@@ -95,16 +93,14 @@ public class GameLoopManager {
         List<BlockState> allowedBlocks = new ArrayList<>(whitelistData.getAllowedStates());
         if (allowedBlocks.isEmpty()) allowedBlocks.add(Blocks.CRAFTING_TABLE.defaultBlockState());
 
-        // ✅ 新增：准备传送数据 (使用 MapExtraIntegration)
         String mapTag = config.gameMapTag;
-        MapExtraIntegration mapData = MapExtraIntegration.get(level); // ✅ 修改：使用集成类
+        MapExtraIntegration mapData = MapExtraIntegration.get(level);
         boolean shouldTeleport = mapTag != null && !mapTag.isEmpty();
 
         //分配抓捕者
         for (int i = 0; i < config.seekerCount; i++) {
             ServerPlayer p = players.get(i);
             makeSeeker(p, true);
-            // ✅ 传送抓捕者
             if (shouldTeleport) {
                 BlockPos pos = mapData.getRandomPos(mapTag, level);
                 if (pos != null) {
@@ -116,7 +112,6 @@ public class GameLoopManager {
         for (int i = config.seekerCount; i < players.size(); i++) {
             ServerPlayer p = players.get(i);
             makeHider(p, allowedBlocks);
-            // ✅ 传送躲藏者
             if (shouldTeleport) {
                 BlockPos pos = mapData.getRandomPos(mapTag, level);
                 if (pos != null) {
@@ -124,14 +119,12 @@ public class GameLoopManager {
                 }
             }
         }
-        //发送事件和广播
+
         MinecraftForge.EVENT_BUS.post(new GameStartEvent(level));
         broadcast(level, Component.literal("游戏开始！限时 " + config.gameDurationSeconds + " 秒！").withStyle(ChatFormatting.GREEN));
-        //游戏开始：立刻通知客户端显示 HUD
         broadcastHudUpdate(level, true);
     }
 
-    //                          ----单人调试模式----
     private static void startDebugMode(ServerPlayer player, ServerLevel level) {
         isGameRunning = true;
         ticksRemaining = 6000;
@@ -146,22 +139,22 @@ public class GameLoopManager {
         broadcastHudUpdate(level, true);
     }
 
-    //                          ----游戏强制停止----
     public static void stopGame(ServerLevel level, WinnerType winner, Component reason) {
         if (!isGameRunning) return;
         isGameRunning = false;
+
+        // ✅ 游戏结束时，清理场上所有诱饵
+        cleanupDecoys(level);
+
         MinecraftForge.EVENT_BUS.post(new GameEndEvent(level, winner, reason));
 
-        // ✅ 新增：准备大厅传送数据 (使用 MapExtraIntegration)
         ServerGameConfig config = ServerGameConfig.get(level);
         String lobbyTag = config.lobbyTag;
-        MapExtraIntegration mapData = MapExtraIntegration.get(level); // ✅ 修改：使用集成类
+        MapExtraIntegration mapData = MapExtraIntegration.get(level);
         boolean shouldTeleportLobby = lobbyTag != null && !lobbyTag.isEmpty();
 
-        //重置玩家状态 (并执行传送)
         for (ServerPlayer player : level.players()) {
             resetPlayerState(player);
-            // ✅ 游戏结束传回大厅
             if (shouldTeleportLobby) {
                 BlockPos pos = mapData.getRandomPos(lobbyTag, level);
                 if (pos != null) {
@@ -171,11 +164,9 @@ public class GameLoopManager {
         }
 
         broadcast(level, Component.literal("🛑 游戏结束！").append(reason).withStyle(ChatFormatting.GOLD));
-        // ✅ 关键修复：正确传递 false，让客户端关闭 HUD
         broadcastHudUpdate(level, false);
     }
 
-    //       ----相当于游戏的心跳----
     public static void tick(ServerLevel level) {
         if (!isGameRunning) return;
         ticksRemaining--;
@@ -201,13 +192,11 @@ public class GameLoopManager {
             checkSeekerWinCondition(level);
         }
 
-        // 每秒同步 HUD 数据
         if (ticksRemaining % 20 == 0) {
             broadcastHudUpdate(level, true);
         }
     }
 
-    //          ----检查抓捕者是否胜利----
     private static void checkSeekerWinCondition(ServerLevel level) {
         long hiderCount = level.players().stream().filter(p -> {
             if (p.isSpectator()) return false;
@@ -220,7 +209,10 @@ public class GameLoopManager {
         }
     }
 
-    //              ----玩家互动逻辑 (射线检测)----
+    // ==========================================
+    //              玩家与替身互动逻辑 (OBB 射线检测)
+    // ==========================================
+
     private static double getReach(ServerPlayer attacker) {
         double reach = 3.5;
         try {
@@ -231,6 +223,9 @@ public class GameLoopManager {
         return reach;
     }
 
+    /**
+     * 抓捕者左键攻击触发 (修改版：支持击中玩家和替身)
+     */
     public static void onSeekerLeftClickRaycast(ServerPlayer attacker, boolean debugParticles) {
         if (!isGameRunning) return;
         attacker.getCapability(GameDataProvider.CAP).ifPresent(atCap -> {
@@ -245,46 +240,91 @@ public class GameLoopManager {
                 spawnDebugRay(level, origin, dir, reach);
             }
 
-            RaycastTarget target = raycastFindClosestHiderOBB(attacker, origin, dir, reach);
-            if (target == null) return;
+            // ✅ 核心改动：查找最近的目标（可能是玩家，也可能是替身）
+            RaycastResult result = raycastFindClosestTarget(attacker, origin, dir, reach);
 
-            target.victim.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
-                if (vicCap.isSeeker()) return;
-                if (isInIFrames(target.victim)) return;
+            if (result == null) return; // 没打中任何东西
 
-                simulateVanillaLikeHit(attacker, target.victim);
-                handleHiderHit(attacker, target.victim, vicCap);
-            });
+            // 情况A：击中玩家
+            if (result.type == TargetType.PLAYER && result.player != null) {
+                result.player.getCapability(GameDataProvider.CAP).ifPresent(vicCap -> {
+                    if (vicCap.isSeeker()) return;
+                    if (isInIFrames(result.player)) return;
+
+                    simulateVanillaLikeHit(attacker, result.player);
+                    handleHiderHit(attacker, result.player, vicCap);
+                });
+            }
+            // 情况B：击中替身
+            else if (result.type == TargetType.DECOY && result.decoy != null) {
+                handleDecoyHit(attacker, result.decoy);
+            }
         });
     }
 
-    private static RaycastTarget raycastFindClosestHiderOBB(ServerPlayer attacker, Vec3 origin, Vec3 dir, double reach) {
+    /**
+     * 统一扫描：寻找射线路径上最近的 "玩家" 或 "替身"
+     */
+    private static RaycastResult raycastFindClosestTarget(ServerPlayer attacker, Vec3 origin, Vec3 dir, double reach) {
         ServerLevel level = attacker.serverLevel();
-        ServerPlayer bestVictim = null;
-        double bestT = Double.POSITIVE_INFINITY;
+        double bestDist = Double.POSITIVE_INFINITY;
+        RaycastResult bestResult = null;
 
+        // 1. 扫描所有躲藏者 (Player)
         for (ServerPlayer p : level.players()) {
-            if (p == attacker) continue;
-            if (p.isSpectator()) continue;
+            if (p == attacker || p.isSpectator()) continue;
 
             var cap = p.getCapability(GameDataProvider.CAP).orElse(null);
-            if (cap == null) continue;
-            if (cap.isSeeker()) continue;
+            if (cap == null || cap.isSeeker() || cap.isInvisible()) continue;
 
-            if (cap.isInvisible()) continue;
-
-            var obbOpt = ObbUtil.getPlayerObb(p);
+            // 获取玩家 OBB
+            Optional<VirtualOBB> obbOpt = ObbUtil.getPlayerObb(p);
             if (obbOpt.isEmpty()) continue;
 
             double t = ObbRaycast.hitDistance(origin, dir, reach, obbOpt.get());
-            if (t >= 0.0 && t < bestT) {
-                bestT = t;
-                bestVictim = p;
+            if (t >= 0.0 && t < bestDist) {
+                bestDist = t;
+                bestResult = new RaycastResult(p, t);
             }
         }
 
-        if (bestVictim == null) return null;
-        return new RaycastTarget(bestVictim, bestT);
+        // 2. 扫描范围内的替身 (DecoyEntity)
+        AABB searchBox = attacker.getBoundingBox().inflate(reach);
+        List<DecoyEntity> decoys = level.getEntitiesOfClass(DecoyEntity.class, searchBox);
+
+        for (DecoyEntity decoy : decoys) {
+            // 获取替身 OBB (需确保 ObbUtil.getDecoyObb 已实现)
+            Optional<VirtualOBB> obbOpt = ObbUtil.getDecoyObb(decoy);
+            if (obbOpt.isEmpty()) continue;
+
+            double t = ObbRaycast.hitDistance(origin, dir, reach, obbOpt.get());
+            if (t >= 0.0 && t < bestDist) {
+                bestDist = t;
+                bestResult = new RaycastResult(decoy, t);
+            }
+        }
+
+        return bestResult;
+    }
+
+    /**
+     * 处理击中替身的逻辑
+     */
+    private static void handleDecoyHit(ServerPlayer attacker, DecoyEntity decoy) {
+        // 播放破碎音效
+        attacker.level().playSound(null, decoy.getX(), decoy.getY(), decoy.getZ(),
+                SoundEvents.ZOMBIE_ATTACK_IRON_DOOR, SoundSource.PLAYERS, 1.0f, 1.5f);
+
+        // 提示消息
+        attacker.displayClientMessage(Component.literal("💥 击碎了替身！").withStyle(ChatFormatting.GRAY), true);
+
+        // 销毁替身
+        decoy.discard();
+
+        // 播放粒子
+        ((ServerLevel)attacker.level()).sendParticles(ParticleTypes.CLOUD,
+                decoy.getX(), decoy.getY() + 0.5, decoy.getZ(),
+                5, 0.2, 0.2, 0.2, 0.1);
     }
 
     private static void spawnDebugRay(ServerLevel level, Vec3 origin, Vec3 dirNorm, double dist) {
@@ -296,13 +336,35 @@ public class GameLoopManager {
         }
     }
 
-    private static final class RaycastTarget {
-        final ServerPlayer victim;
-        final double t;
+    // ==========================================
+    //              数据结构
+    // ==========================================
 
-        RaycastTarget(ServerPlayer victim, double t) {
-            this.victim = victim;
-            this.t = t;
+    private enum TargetType { PLAYER, DECOY }
+
+    /**
+     * 统一结果类，存储击中的目标类型和距离
+     */
+    private static final class RaycastResult {
+        final TargetType type;
+        final ServerPlayer player;
+        final DecoyEntity decoy;
+        final double dist;
+
+        // 构造玩家结果
+        RaycastResult(ServerPlayer player, double dist) {
+            this.type = TargetType.PLAYER;
+            this.player = player;
+            this.decoy = null;
+            this.dist = dist;
+        }
+
+        // 构造替身结果
+        RaycastResult(DecoyEntity decoy, double dist) {
+            this.type = TargetType.DECOY;
+            this.player = null;
+            this.decoy = decoy;
+            this.dist = dist;
         }
     }
 
@@ -401,10 +463,6 @@ public class GameLoopManager {
         PacketHandler.INSTANCE.send(PacketDistributor.PLAYER.with(() -> player), new S2COpenSelectScreen(myOptions));
     }
 
-    // ==========================================
-    //              通用辅助方法
-    // ==========================================
-
     private static void resetPlayerState(ServerPlayer player) {
         player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
             cap.setSeeker(false);
@@ -470,10 +528,30 @@ public class GameLoopManager {
             });
         }
 
-        // ✅ 修正：使用传入的 isRunning 参数
         PacketHandler.INSTANCE.send(
                 PacketDistributor.DIMENSION.with(level::dimension),
                 new S2CUpdateHudPacket(isRunning, ticksRemaining, list)
         );
+    }
+
+    // ==========================================
+    //              清理逻辑
+    // ==========================================
+
+    /**
+     * 清理地图上的所有伪装实体
+     */
+    private static void cleanupDecoys(ServerLevel level) {
+        List<DecoyEntity> toRemove = new ArrayList<>();
+
+        // 使用 EntityTypeTest 高效查找指定类型的实体
+        for (DecoyEntity entity : level.getEntities(EntityTypeTest.forClass(DecoyEntity.class), e -> true)) {
+            toRemove.add(entity);
+        }
+
+        // 遍历删除
+        for (DecoyEntity entity : toRemove) {
+            entity.discard();
+        }
     }
 }

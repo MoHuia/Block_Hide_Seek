@@ -27,6 +27,10 @@ public class ModItems {
     //雷达
     public static final RegistryObject<Item> RADAR =
             ITEMS.register("radar", () -> new Radar(new Item.Properties()));
+    // 隐身粉尘
+    public static final RegistryObject<Item> VANISH =
+            ITEMS.register("vanish", () -> new Vanish(new Item.Properties()));
+
 
     //注册“躲猫猫”标签页
     public static final RegistryObject<CreativeModeTab> BLOCK_HUNT_TAB = CREATIVE_TABS.register("block_hunt_tab", () -> CreativeModeTab.builder()
@@ -38,6 +42,7 @@ public class ModItems {
             .displayItems((parameters, output) -> {
                 output.accept(SEEKER_WAND.get());
                 output.accept(RADAR.get());
+                output.accept(VANISH.get());
             })
             .build());
 

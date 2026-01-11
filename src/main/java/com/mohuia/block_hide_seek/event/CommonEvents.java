@@ -5,8 +5,12 @@ import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.game.GameLoopManager;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
@@ -42,9 +46,10 @@ public class CommonEvents {
     public static void onStartTracking(PlayerEvent.StartTracking event) {
         if (event.getTarget() instanceof ServerPlayer target && event.getEntity() instanceof ServerPlayer observer) {
             target.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-                // 仅发送目标玩家的数据给观察者
+                // 使用完整的构造函数同步所有数据 (包括隐身状态)
+                // 确保 observer 知道 target 是否隐身
                 PacketHandler.INSTANCE.send(PacketDistributor.PLAYER.with(() -> observer),
-                        new S2CSyncGameData(target.getId(), cap.isSeeker(), cap.getDisguise()));
+                        new S2CSyncGameData(target.getId(), cap));
             });
         }
     }
@@ -147,6 +152,41 @@ public class CommonEvents {
                 if (Math.abs(expectedHeight - actualHeight) > 0.01f) {
                     // 强制刷新：这会重新计算 AABB，让玩家能钻进 1格高的洞
                     player.refreshDimensions();
+                }
+            }
+
+            // --- B. ✅ 新增：隐身倒计时逻辑 ---
+            if (cap.isInvisible()) {
+                int timer = cap.getInvisibilityTimer();
+                if (timer > 0) {
+                    cap.setInvisibilityTimer(timer - 1);
+
+                    // ✅ 每秒 (20 tick) 在 Action Bar 显示一次倒计时
+                    if (timer % 20 == 0) {
+                        int secondsLeft = timer / 20;
+                        ChatFormatting color = secondsLeft <= 3 ? ChatFormatting.RED : ChatFormatting.GREEN;
+
+                        player.displayClientMessage(
+                                Component.literal("👻隐身剩余: ")
+                                        .append(Component.literal(secondsLeft + "s").withStyle(color, ChatFormatting.BOLD)),
+                                true // true 表示显示在 Action Bar (物品栏上方) 而不是聊天框
+                        );
+                    }
+
+                } else {
+                    // 时间到，解除隐身
+                    cap.setInvisible(false);
+
+                    // 同步给所有人
+                    if (player instanceof ServerPlayer sp) {
+                        PacketHandler.INSTANCE.send(
+                                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> sp),
+                                new S2CSyncGameData(sp.getId(), cap)
+                        );
+                    }
+
+                    // 显形提示
+                    player.displayClientMessage(Component.literal("隐身失效！").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), true);
                 }
             }
         });

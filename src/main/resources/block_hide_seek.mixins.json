@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_17",
   "refmap": "block_hide_seek.refmap.json",
   "mixins": [
+    "EntityMixin",
     "PlayerMixin"
   ],
   "injectors": {

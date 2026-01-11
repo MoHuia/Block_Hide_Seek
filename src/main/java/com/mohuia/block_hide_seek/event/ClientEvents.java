@@ -91,6 +91,14 @@ public class ClientEvents {
         Player player = event.getEntity();
         // 获取 Capability 数据
         player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+
+            // ✅ 新增：优先处理隐身逻辑
+            if (cap.isInvisible()) {
+                // 彻底取消渲染：既不画人，也不画方块
+                event.setCanceled(true);
+                return;
+            }
+
             // 如果是抓捕者(Seeker)，不做任何处理，直接返回
             if (cap.isSeeker()) return;
 

@@ -1,5 +1,6 @@
 {
   "item.block_hide_seek.seeker_wand": "Disguise Wand",
   "creativetab.block_hide_seek": "Block Hide & Seek",
-  "item.block_hide_seek.radar": "Shadow Seeker"
+  "item.block_hide_seek.radar": "Shadow Seeker",
+  "item.block_hide_seek.vanish": "Vanish"
 }

@@ -37,6 +37,10 @@ public class GameDataProvider implements ICapabilitySerializable<CompoundTag> {
         tag.putFloat("aabbY", backend.getAABBY());
         tag.putFloat("aabbZ", backend.getAABBZ());
 
+        // ✅ 新增：保存隐身数据
+        tag.putBoolean("isInvisible", backend.isInvisible());
+        tag.putInt("invisibilityTimer", backend.getInvisibilityTimer());
+
         if (backend.getDisguise() != null) {
             tag.put("block", NbtUtils.writeBlockState(backend.getDisguise()));
         }
@@ -54,6 +58,10 @@ public class GameDataProvider implements ICapabilitySerializable<CompoundTag> {
         if (nbt.contains("aabbX") && nbt.contains("aabbY") && nbt.contains("aabbZ")) {
             backend.setAABBSize(nbt.getFloat("aabbX"), nbt.getFloat("aabbY"), nbt.getFloat("aabbZ"));
         }
+
+        // ✅ 新增：读取隐身数据
+        if (nbt.contains("isInvisible")) backend.setInvisible(nbt.getBoolean("isInvisible"));
+        if (nbt.contains("invisibilityTimer")) backend.setInvisibilityTimer(nbt.getInt("invisibilityTimer"));
 
         if (nbt.contains("block")) {
             backend.setDisguise(NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), nbt.getCompound("block")));

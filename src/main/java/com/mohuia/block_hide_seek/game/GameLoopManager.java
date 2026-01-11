@@ -271,6 +271,8 @@ public class GameLoopManager {
             if (cap == null) continue;
             if (cap.isSeeker()) continue;
 
+            if (cap.isInvisible()) continue;
+
             var obbOpt = ObbUtil.getPlayerObb(p);
             if (obbOpt.isEmpty()) continue;
 

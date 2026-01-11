@@ -9,7 +9,6 @@ public interface IGameData {
     float getModelWidth();
     float getModelHeight();
 
-    // 这里继续沿用你已有字段名：实际含义改为 OBB 的 sizeX/sizeY/sizeZ（总长度）
     float getAABBX();
     float getAABBY();
     float getAABBZ();
@@ -28,9 +27,15 @@ public interface IGameData {
 
     void copyFrom(IGameData other);
 
-    //锁定
     boolean isYawLocked();
     void setYawLocked(boolean locked);
     float getLockedYaw();
     void setLockedYaw(float yaw);
+
+    // ✅ 新增：隐身相关接口
+    boolean isInvisible();
+    void setInvisible(boolean invisible);
+
+    int getInvisibilityTimer();
+    void setInvisibilityTimer(int timer);
 }

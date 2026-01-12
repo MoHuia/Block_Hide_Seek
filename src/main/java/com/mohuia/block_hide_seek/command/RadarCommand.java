@@ -1,7 +1,7 @@
 package com.mohuia.block_hide_seek.command;
 
-import com.mapextra.MapExtra;
-import com.mapextra.item.Radar;
+import com.mohuia.block_hide_seek.BlockHideSeek;
+import com.mohuia.block_hide_seek.item.Radar;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.commands.CommandSourceStack;
@@ -11,7 +11,7 @@ import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
-@Mod.EventBusSubscriber(modid = MapExtra.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
+@Mod.EventBusSubscriber(modid = BlockHideSeek.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class RadarCommand {
 
     @SubscribeEvent

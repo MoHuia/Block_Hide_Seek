@@ -196,7 +196,7 @@ public class GeometryCache {
         for (int x = px - SCAN_RADIUS; x <= px + SCAN_RADIUS; x++) {
             for (int z = pz - SCAN_RADIUS; z <= pz + SCAN_RADIUS; z++) {
                 if ((x - px) * (x - px) + (z - pz) * (z - pz) > SCAN_RADIUS * SCAN_RADIUS) continue;
-                for (int y = py - 4; y <= py + 7; y++) {
+                for (int y = py - 15; y <= py + 15; y++) {
                     mPos.set(x, y, z);
                     BlockState state = level.getBlockState(mPos);
                     if (state.isAir()) continue;

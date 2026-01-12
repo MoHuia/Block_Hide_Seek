@@ -25,7 +25,7 @@ import java.util.List;
 public class Vanish extends Item {
 
     // 隐身持续 10 秒
-    private static final int DURATION = 10 * 20;
+    private static final int DURATION = 5 * 20;
 
     public Vanish(Properties p) {
         super(p);

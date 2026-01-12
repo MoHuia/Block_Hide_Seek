@@ -56,6 +56,14 @@ public class GeometryCache {
     public void offerEntry(CacheEntry entry) {
         removeExpiredEntries();
         cacheQueue.offerLast(entry);
+        // ✅ 打印当前队列状态（核心）
+        System.out.println(
+                "[GeometryCache] offerEntry 入队成功 | " +
+                        "queueSize=" + cacheQueue.size() +
+                        ", quads=" + entry.quads.size() +
+                        ", targets=" + entry.targets.size() +
+                        ", origin=(" + entry.originX + "," + entry.originY + "," + entry.originZ + ")"
+        );
     }
 
     private void removeExpiredEntries() {
@@ -179,6 +187,7 @@ public class GeometryCache {
 
     private List<QuadFxAPI.QuadJob> rebuildAt(Level level, double centerX, double centerY, double centerZ) {
         List<QuadFxAPI.QuadJob> tempQuads = new LinkedList<>();
+
         BlockPos.MutableBlockPos mPos = new BlockPos.MutableBlockPos();
         int px = (int) Math.floor(centerX);
         int py = (int) Math.floor(centerY);
@@ -195,6 +204,13 @@ public class GeometryCache {
                 }
             }
         }
+        // ✅ 调试：扫描完成后，输出面数量
+        System.out.println(
+                "[GeometryCache] rebuildAt 完成：" +
+                        " quads=" + tempQuads.size() +
+                        " (估算三角面=" + (tempQuads.size() * 2) + ")" +
+                        " center=(" + px + "," + py + "," + pz + ")"
+        );
         return tempQuads;
     }
 }

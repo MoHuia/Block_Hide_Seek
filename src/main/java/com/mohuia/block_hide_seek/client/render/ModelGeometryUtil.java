@@ -10,7 +10,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.function.Consumer;
 
 // ✅ 引入正确的 QuadFxAPI
-import com.mohuia.block_hide_seek.client.render.QuadFxAPI;
 import com.mohuia.block_hide_seek.client.render.QuadFxAPI.FaceDir;
 import com.mohuia.block_hide_seek.client.render.QuadFxAPI.QuadJob;
 

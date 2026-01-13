@@ -2,10 +2,13 @@ package com.mohuia.block_hide_seek.packet.S2C;
 
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.network.PacketHandler;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class S2CRadarScanService {
 
@@ -20,7 +23,9 @@ public final class S2CRadarScanService {
         long startTick = sender.level().getGameTime();
 
         List<S2CRadarScanSync.Target> targets = new ArrayList<>();
-        int foundCount = 0;
+        AtomicInteger debugCount = new AtomicInteger(0);
+
+        sender.sendSystemMessage(Component.literal("=== 📡 雷达调试日志 ===").withStyle(ChatFormatting.GOLD));
 
         // 获取所有玩家
         for (ServerPlayer p : sender.server.getPlayerList().getPlayers()) {
@@ -34,19 +39,36 @@ public final class S2CRadarScanService {
             if (r > SCAN_RADIUS) continue;
 
             // 阵营检查
-            // 只有当目标是 "躲藏者" (isSeeker == false) 时才加入雷达
-            // 如果你希望雷达也能扫到队友，可以删掉这段
             p.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
-                // 如果 cap 存在，且 不是抓捕者 (即躲藏者)，才显示
-                if (!cap.isSeeker()) {
+                boolean isSeeker = cap.isSeeker();
+
+                // 🎨 构建调试消息
+                Component roleText = isSeeker
+                        ? Component.literal("抓捕者 (忽略)").withStyle(ChatFormatting.GREEN)
+                        : Component.literal("躲藏者 (锁定)").withStyle(ChatFormatting.RED);
+
+                sender.sendSystemMessage(Component.literal(" -> 发现目标: ")
+                        .append(p.getDisplayName())
+                        .append(" | 身份: ")
+                        .append(roleText));
+
+                // 核心逻辑：只有不是抓捕者才加入列表
+                if (!isSeeker) {
                     targets.add(new S2CRadarScanSync.Target(
                             p.getUUID(), p.getX(), p.getY(), p.getZ()
                     ));
+                    debugCount.incrementAndGet();
                 }
             });
         }
 
-        // 无论是否扫到人，波纹特效都必须发送！
+        if (debugCount.get() == 0) {
+            sender.sendSystemMessage(Component.literal(" -> 未发现有效躲藏者").withStyle(ChatFormatting.GRAY));
+        }
+
+        sender.sendSystemMessage(Component.literal("=======================").withStyle(ChatFormatting.GOLD));
+
+        // 发送包给客户端进行渲染
         S2CRadarScanSync pkt = new S2CRadarScanSync(ox, oy, oz, startTick, targets);
         PacketHandler.sendToAll(pkt);
     }

@@ -68,7 +68,8 @@ public record C2SUpdateGameSettings(int duration, int hits, int seekers, String 
                                 config.radarCooldown,
                                 config.vanishMana,
                                 config.decoyCount,
-                                config.decoyCooldown
+                                config.decoyCooldown,
+                                config.bowCooldown
                         )
                 );
             }

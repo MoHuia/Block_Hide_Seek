@@ -12,7 +12,7 @@ import net.minecraftforge.network.PacketDistributor;
 
 import java.util.function.Supplier;
 
-public record C2SUpdateItemConfig(int radarRange, int radarCooldown,int vanishMana,int decoyCount,int decoyCooldown) {
+public record C2SUpdateItemConfig(int radarRange, int radarCooldown,int vanishMana,int decoyCount,int decoyCooldown,int bowCooldown) {
 
     public static void encode(C2SUpdateItemConfig msg, FriendlyByteBuf buf) {
         buf.writeInt(msg.radarRange);
@@ -20,10 +20,11 @@ public record C2SUpdateItemConfig(int radarRange, int radarCooldown,int vanishMa
         buf.writeInt(msg.vanishMana);
         buf.writeInt(msg.decoyCount);
         buf.writeInt(msg.decoyCooldown);
+        buf.writeInt(msg.bowCooldown);
     }
 
     public static C2SUpdateItemConfig decode(FriendlyByteBuf buf) {
-        return new C2SUpdateItemConfig(buf.readInt(), buf.readInt(),buf.readInt(),buf.readInt(),buf.readInt());
+        return new C2SUpdateItemConfig(buf.readInt(), buf.readInt(),buf.readInt(),buf.readInt(),buf.readInt(),buf.readInt());
     }
 
     public static void handle(C2SUpdateItemConfig msg, Supplier<NetworkEvent.Context> ctx) {
@@ -38,6 +39,7 @@ public record C2SUpdateItemConfig(int radarRange, int radarCooldown,int vanishMa
                 config.vanishMana = msg.vanishMana();
                 config.decoyCount = msg.decoyCount();
                 config.decoyCooldown = msg.decoyCooldown();
+                config.bowCooldown = msg.bowCooldown();
                 config.setDirty(); // 💾 保存！
 
                 // 额外动作：更新服务端 Vanish 类的静态变量
@@ -60,7 +62,8 @@ public record C2SUpdateItemConfig(int radarRange, int radarCooldown,int vanishMa
                                 config.radarCooldown,
                                 config.vanishMana,
                                 config.decoyCount,
-                                config.decoyCooldown
+                                config.decoyCooldown,
+                                config.bowCooldown
                         )
                 );
             }

@@ -18,6 +18,7 @@ public class ServerGameConfig extends SavedData {
     public int vanishMana = 200;      // 默认 200 ticks (10秒)
     public int decoyCount = 3;         //默认最大3个
     public int decoyCooldown = 600;     //默认冷却30s
+    public int bowCooldown = 100;
 
     public static ServerGameConfig get(Level level) {
         if (level instanceof ServerLevel serverLevel) {
@@ -41,6 +42,8 @@ public class ServerGameConfig extends SavedData {
         if (tag.contains("vanish_mana")) { data.vanishMana = tag.getInt("vanish_mana");}
         if (tag.contains("decoy_count")) data.decoyCount = tag.getInt("decoy_count");
         if (tag.contains("decoy_cd")) data.decoyCooldown = tag.getInt("decoy_cd");
+        if (tag.contains("bow_cd")) data.bowCooldown = tag.getInt("bow_cd");
+        if (data.bowCooldown < 0) data.bowCooldown = 0;
         // 保底修正
         if (data.gameDurationSeconds <= 0) data.gameDurationSeconds = 300;
         if (data.hitsToConvert <= 0) data.hitsToConvert = 5;
@@ -60,6 +63,7 @@ public class ServerGameConfig extends SavedData {
         tag.putInt("vanish_mana", vanishMana);
         tag.putInt("decoy_count", decoyCount);
         tag.putInt("decoy_cd", decoyCooldown);
+        tag.putInt("bow_cd", bowCooldown);
         return tag;
     }
 }

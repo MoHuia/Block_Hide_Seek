@@ -28,7 +28,9 @@ public class S2CSyncConfig {
     private final int decoyCount;
     private final int decoyCooldown;
 
-    public S2CSyncConfig(int duration, int hits, int seekers, String hiderTag, String lobbyTag, int radarRange, int radarCooldown, int vanishMana,int decoyCount,int decoyCooldown) {
+    private final int bowCooldown;
+
+    public S2CSyncConfig(int duration, int hits, int seekers, String hiderTag, String lobbyTag, int radarRange, int radarCooldown, int vanishMana,int decoyCount,int decoyCooldown,int bowCooldown) {
         this.duration = duration;
         this.hits = hits;
         this.seekers = seekers;
@@ -39,6 +41,7 @@ public class S2CSyncConfig {
         this.vanishMana = vanishMana;
         this.decoyCount = decoyCount;
         this.decoyCooldown = decoyCooldown;
+        this.bowCooldown = bowCooldown;
     }
 
     public static void encode(S2CSyncConfig msg, FriendlyByteBuf buf) {
@@ -52,6 +55,7 @@ public class S2CSyncConfig {
         buf.writeInt(msg.vanishMana);
         buf.writeInt(msg.decoyCount);
         buf.writeInt(msg.decoyCooldown);
+        buf.writeInt(msg.bowCooldown);
     }
 
     public static S2CSyncConfig decode(FriendlyByteBuf buf) {
@@ -62,6 +66,7 @@ public class S2CSyncConfig {
                 buf.readUtf(),
                 buf.readUtf(),
                 // 读取道具数据
+                buf.readInt(),
                 buf.readInt(),
                 buf.readInt(),
                 buf.readInt(),
@@ -84,7 +89,8 @@ public class S2CSyncConfig {
                             msg.radarCooldown,
                             msg.vanishMana,
                             msg.decoyCount,
-                            msg.decoyCooldown
+                            msg.decoyCooldown,
+                            msg.bowCooldown
                     );
                 })
         );

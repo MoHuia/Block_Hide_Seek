@@ -12,6 +12,8 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.mohuia.block_hide_seek.client.config.ClientConfigCache.bowCooldown;
+
 public class ItemConfigScreen extends Screen {
     private final Screen lastScreen;
 
@@ -20,6 +22,7 @@ public class ItemConfigScreen extends Screen {
     private int vanishMana;
     private int decoyCount;
     private int decoyCooldown;
+    private int bowCooldown;
 
     private final List<ConfigSection> sections = new ArrayList<>();
 
@@ -34,85 +37,93 @@ public class ItemConfigScreen extends Screen {
         this.vanishMana = ClientConfigCache.vanishMana;
         this.decoyCount = ClientConfigCache.decoyCount;
         this.decoyCooldown = ClientConfigCache.decoyCooldown;
+        this.bowCooldown = ClientConfigCache.bowCooldown;
     }
 
     @Override
     protected void init() {
         this.sections.clear();
 
-        int listWidth = (int) (this.width * 0.85);
-        int startX = (this.width - listWidth) / 2;
-        int currentY = 40;
+        // ==========================================
+        // 1. 布局计算 (动态高度)
+        // ==========================================
+        int colWidth = (int) (this.width * 0.45);      // 列宽 45%
+        int leftX = (int) (this.width * 0.05);         // 左列 X
+        int rightX = (int) (this.width * 0.52);        // 右列 X
 
-        // 区域 1
+        int startY = 35;                               // 第一行起始 Y
+
+        // 设定两种高度：大板块(2行配置) 和 小板块(1行配置)
+        int HEIGHT_LARGE = 85;
+        int HEIGHT_SMALL = 60;
+        int GAP = 10;
+
+        // 第二行的 Y 坐标 = 第一行 Y + 大板块高度 + 间距
+        int row2_Y = startY + HEIGHT_LARGE + GAP;
+
+        // ==========================================
+        // 2. 左列内容 (Radar -> Vanish)
+        // ==========================================
+
+        // [左上] 觅影 (Radar) - 2个参数 -> 用大高度
         ConfigSection radarSection = new ConfigSection(
-                "觅影 (Radar)",
-                "探测最近的躲藏者",
-                () -> "(实际冷却: " + radarCooldown + " ticks)",
+                "觅影 (Radar)", "探测最近的躲藏者",
+                () -> "(" + radarCooldown + " ticks)",
                 0xFFFFD700,
-                startX, currentY, listWidth, ITEM_HEIGHT
+                leftX, startY, colWidth, HEIGHT_LARGE
         );
-
-        // -> 关键修改：传递 this::addRenderableWidget
-        radarSection.addNumberRow(this::addRenderableWidget, "范围 (格):",
-                () -> radarRange,
-                val -> radarRange = val,
-                10, 500, 10,
-                false);
-
-        radarSection.addNumberRow(this::addRenderableWidget, "冷却 (秒):",
-                () -> radarCooldown,
-                val -> radarCooldown = val,
-                0, 12000, 10,
-                true);
-
+        radarSection.addNumberRow(this::addRenderableWidget, "范围:",
+                () -> radarRange, v -> radarRange = v, 10, 500, 10, false);
+        radarSection.addNumberRow(this::addRenderableWidget, "冷却:",
+                () -> radarCooldown, v -> radarCooldown = v, 0, 12000, 10, true);
         this.sections.add(radarSection);
-        currentY += ITEM_HEIGHT + GAP;
 
-        // 区域 2
+        // [左下] 云翳 (Vanish) - 1个参数 -> 用小高度
         ConfigSection vanishSection = new ConfigSection(
-                "云翳 (Vanish)",
-                "使用该道具的总时长",
-                () -> "(实际容量: " + vanishMana + " ticks)",
+                "云翳 (Vanish)", "使用总时长",
+                () -> "(" + vanishMana + " ticks)",
                 0xFF00FFFF,
-                startX, currentY, listWidth, ITEM_HEIGHT
+                leftX, row2_Y, colWidth, HEIGHT_SMALL
         );
-
-        vanishSection.addNumberRow(this::addRenderableWidget, "总能量 (秒):",
-                () -> vanishMana,
-                val -> vanishMana = val,
-                20, 12000, 20,
-                true);
+        vanishSection.addNumberRow(this::addRenderableWidget, "能量:",
+                () -> vanishMana, v -> vanishMana = v, 20, 12000, 20, true);
         this.sections.add(vanishSection);
 
-        currentY += ITEM_HEIGHT + GAP;
 
-        // 区域 3
+        // ==========================================
+        // 3. 右列内容 (Decoy -> Bow)
+        // ==========================================
+
+        // [右上] 幻象 (Decoy) - 2个参数 -> 用大高度
         ConfigSection decoySection = new ConfigSection(
-                "幻象 (Decoy)",
-                "制造假身迷惑敌人",
-                () -> "(实际冷却: " + decoyCooldown + " ticks)",
-                0xFF00FF00, // 绿色
-                startX, currentY, listWidth, ITEM_HEIGHT
+                "幻象 (Decoy)", "制造假身",
+                () -> "(" + decoyCooldown + " ticks)",
+                0xFF00FF00,
+                rightX, startY, colWidth, HEIGHT_LARGE
         );
-
-        // 数量 (整数)
-        decoySection.addNumberRow(this::addRenderableWidget, "最大数量:",
-                () -> decoyCount,
-                val -> decoyCount = val,
-                1, 10, 1, // 最小1个，最大10个，每次加1
-                false);
-
-        // 冷却 (时间)
-        decoySection.addNumberRow(this::addRenderableWidget, "冷却 (秒):",
-                () -> decoyCooldown,
-                val -> decoyCooldown = val,
-                0, 12000, 10,
-                true);
+        decoySection.addNumberRow(this::addRenderableWidget, "数量:",
+                () -> decoyCount, v -> decoyCount = v, 1, 10, 1, false);
+        decoySection.addNumberRow(this::addRenderableWidget, "冷却:",
+                () -> decoyCooldown, v -> decoyCooldown = v, 0, 12000, 10, true);
         this.sections.add(decoySection);
 
-        // 底部按钮
-        int bottomY = Math.max(this.height - 30, currentY + ITEM_HEIGHT + 10);
+        // [右下] 猎弓 (Bow) - 1个参数 -> 用小高度
+        // 它的 Y 坐标和左边的 Vanish 对齐，非常整齐
+        ConfigSection bowSection = new ConfigSection(
+                "猎弓 (Bow)", "抓捕者的武器",
+                () -> "(" + bowCooldown + " ticks)",
+                0xFFFF0000,
+                rightX, row2_Y, colWidth, HEIGHT_SMALL
+        );
+        bowSection.addNumberRow(this::addRenderableWidget, "冷却:",
+                () -> bowCooldown, v -> bowCooldown = v, 0, 12000, 10, true);
+        this.sections.add(bowSection);
+
+
+        // ==========================================
+        // 4. 底部按钮
+        // ==========================================
+        int bottomY = row2_Y + HEIGHT_SMALL + 15;
 
         addRenderableWidget(Button.builder(Component.literal("保存并返回"), b -> {
             saveAndClose();
@@ -121,7 +132,7 @@ public class ItemConfigScreen extends Screen {
 
     private void saveAndClose() {
         sections.forEach(ConfigSection::applyPendingEdits);
-        PacketHandler.INSTANCE.sendToServer(new C2SUpdateItemConfig(radarRange, radarCooldown, vanishMana, decoyCount, decoyCooldown));
+        PacketHandler.INSTANCE.sendToServer(new C2SUpdateItemConfig(radarRange, radarCooldown, vanishMana, decoyCount, decoyCooldown,bowCooldown));
         this.minecraft.setScreen(lastScreen);
     }
 

@@ -25,13 +25,40 @@ import java.util.List;
 
 public class Vanish extends Item {
 
-    // 最大耐久度 (例如 1200 tick = 60秒持续时间)
-    // 玩家可以通过附魔"耐久"来延长使用时间
-    public static int MAX_MANA = 200;
+    // 这是一个静态变量，你需要确保：
+    // 1. 客户端收到 Config 同步包时，更新这个值。
+    // 2. 服务端加载 Config 时，更新这个值。
+    public static int MAX_MANA = 100;
 
     public Vanish(Properties p) {
-        // 设置最大耐久度
-        super(p.durability(MAX_MANA));
+        // 这里依然传入一个默认值，防止空指针或初始化错误，
+        // 但实际逻辑会由下面的重写方法接管。
+        super(p.durability(100));
+    }
+
+    // ==========================================
+    // 🔥 核心修复：动态耐久度逻辑
+    // ==========================================
+
+    /**
+     * 重写此方法，使物品的最大耐久度动态跟随 MAX_MANA 变量变化。
+     * 这样 Config 修改后，无需重启游戏，物品上限就会改变。
+     */
+    @Override
+    public int getMaxDamage(ItemStack stack) {
+        return MAX_MANA;
+    }
+
+    /**
+     * 重写耐久条长度计算。
+     * 默认逻辑是基于构造函数的 maxDamage 计算的，
+     * 我们必须重写它以使用动态的 getMaxDamage(stack)。
+     */
+    @Override
+    public int getBarWidth(ItemStack stack) {
+        // 这里的逻辑是：(当前耐久 / 最大耐久) * 13像素
+        // stack.getDamageValue() 返回的是"已损耗"的值
+        return Math.round(13.0F - (float)stack.getDamageValue() * 13.0F / (float)this.getMaxDamage(stack));
     }
 
     // ==========================================
@@ -39,16 +66,12 @@ public class Vanish extends Item {
     // ==========================================
     @Override
     public Component getName(ItemStack pStack) {
-        // 使用 AQUA (淡青色) 让它看起来像是稀有道具
         return Component.translatable(this.getDescriptionId(pStack))
                 .withStyle(ChatFormatting.AQUA);
     }
 
-    // 开启时显示附魔光效
     @Override
     public boolean isFoil(ItemStack stack) {
-        // 这里只是简单的判断，如果物品有NBT标记"isActive"就发光
-        // 实际逻辑主要靠 Capability，但在客户端渲染时，NBT更方便读取
         return stack.getOrCreateTag().getBoolean("isActive");
     }
 
@@ -57,13 +80,13 @@ public class Vanish extends Item {
     // ==========================================
     @Override
     public boolean isBarVisible(ItemStack stack) {
-        // 只要用过（有损耗）就显示条，或者激活时显示
+        // 只要有损耗就显示
         return stack.isDamaged();
     }
 
     @Override
     public int getBarColor(ItemStack stack) {
-        // 返回 RGB 颜色：淡蓝色 (类似于法力值)
+        // 返回 RGB 颜色：淡蓝色
         return 0x00FFFF;
     }
 
@@ -74,7 +97,8 @@ public class Vanish extends Item {
     public void appendHoverText(ItemStack pStack, @Nullable Level pLevel, List<Component> pTooltipComponents, TooltipFlag pIsAdvanced) {
         pTooltipComponents.add(Component.literal("右键点击：切换 开启/关闭")
                 .withStyle(ChatFormatting.GRAY));
-        pTooltipComponents.add(Component.literal("持续消耗耐久，手持时生效")
+        // 这里可以动态显示当前的 Max Mana
+        pTooltipComponents.add(Component.literal("持续消耗耐久 (上限: " + MAX_MANA + ")")
                 .withStyle(ChatFormatting.DARK_GRAY));
 
         if (pStack.getOrCreateTag().getBoolean("isActive")) {
@@ -99,32 +123,21 @@ public class Vanish extends Item {
                     return;
                 }
 
-                // 获取当前是否隐身
                 boolean currentInvisible = cap.isInvisible();
-                // 切换状态 (如果开着就关，如果关着就开)
                 boolean newState = !currentInvisible;
 
-                // 1. 设置 Capability 状态
                 cap.setInvisible(newState);
-
-                // 2. 标记物品 NBT (用于客户端发光渲染 isFoil)
                 stack.getOrCreateTag().putBoolean("isActive", newState);
 
-                // 3. 消息提示
                 if (newState) {
                     sp.displayClientMessage(Component.literal("👻 隐身启动").withStyle(ChatFormatting.GREEN), true);
-
-                    // ✅ 播放启动音效
                     level.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.BEACON_ACTIVATE, SoundSource.PLAYERS, 1.0f, 1.0f);
-
-                    // ✅ 仅在启动瞬间播放一次大烟雾
                     playStartEffect(sp.serverLevel(), sp.getX(), sp.getY(), sp.getZ());
                 } else {
                     sp.displayClientMessage(Component.literal("🛑 隐身关闭").withStyle(ChatFormatting.RED), true);
                     level.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.BEACON_DEACTIVATE, SoundSource.PLAYERS, 1.0f, 1.0f);
                 }
 
-                // 4. 同步给客户端
                 PacketHandler.INSTANCE.send(
                         PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> sp),
                         new S2CSyncGameData(sp.getId(), cap)
@@ -135,25 +148,18 @@ public class Vanish extends Item {
     }
 
     // ==========================================
-    // 5. 放在背包里时的逻辑 (防止 BUG)
+    // 5. 放在背包里时的逻辑
     // ==========================================
-    // 如果玩家把开启状态的物品扔掉或放进箱子，它应该自动关闭发光
     @Override
     public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
         if (!level.isClientSide && !isSelected) {
-            // 如果物品没被拿在手上，但 NBT 还是 active，强制关掉 NBT 显示
-            // (实际隐身逻辑在 PlayerTickHandler 处理，这里只处理物品外观)
             if (stack.getOrCreateTag().getBoolean("isActive")) {
                 stack.getOrCreateTag().putBoolean("isActive", false);
             }
         }
     }
 
-    /**
-     * 启动瞬间的烟雾爆裂特效
-     */
     public static void playStartEffect(ServerLevel level, double x, double y, double z) {
-        // 这里把数量加多到 50，制造瞬间“砰”的一下消失的感觉
         level.sendParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, x, y + 1.0, z, 50, 0.5, 0.8, 0.5, 0.05);
     }
 }

@@ -1,8 +1,6 @@
 package com.mohuia.block_hide_seek.entity;
 
 import com.mohuia.block_hide_seek.BlockHideSeek;
-import com.mohuia.block_hide_seek.entity.DecoyEntity;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraftforge.registries.DeferredRegister;
@@ -21,4 +19,12 @@ public class EntityInit {
                     .clientTrackingRange(64) // 渲染距离
                     .updateInterval(2) // 更新频率
                     .build(BlockHideSeek.MODID + ":decoy"));
+
+    //注册神弓
+    public static final RegistryObject<EntityType<ArrowEntity>> SEEKER_ARROW = ENTITIES.register("seeker_arrow",
+            () -> EntityType.Builder.<ArrowEntity>of(ArrowEntity::new, MobCategory.MISC)
+                    .sized(0.5F, 0.5F)
+                    .clientTrackingRange(4)
+                    .updateInterval(20)
+                    .build(BlockHideSeek.MODID + ":seeker_arrow"));
 }

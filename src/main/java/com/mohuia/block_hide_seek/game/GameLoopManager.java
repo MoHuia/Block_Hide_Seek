@@ -8,6 +8,8 @@ import com.mohuia.block_hide_seek.event.GameStartEvent;
 import com.mohuia.block_hide_seek.hitbox.ObbRaycast;
 import com.mohuia.block_hide_seek.hitbox.ObbUtil;
 import com.mohuia.block_hide_seek.hitbox.VirtualOBB; // ✅ 导入 OBB 类
+import com.mohuia.block_hide_seek.item.ModItems;
+import com.mohuia.block_hide_seek.item.SeekerWandItem;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.S2C.S2COpenSelectScreen;
 import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
@@ -26,6 +28,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.entity.EntityTypeTest;
@@ -33,12 +39,10 @@ import net.minecraft.world.phys.AABB; // ✅ 导入 AABB
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.network.PacketDistributor;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional; // ✅ 导入 Optional
+import java.util.*;
 
 /**
  * 游戏核心循环管理器
@@ -52,6 +56,13 @@ public class GameLoopManager {
     private static final int FAKE_IFRAMES_TICKS = 10;
     private static final int FAKE_HURT_ANIM_TICKS = 10;
     private static final float FAKE_KNOCKBACK = 0.4F;
+
+    // ✅ 定义抓捕者速度加成的 UUID (确保唯一性)
+    private static final UUID SEEKER_SPEED_UUID = UUID.fromString("c0d3b45e-1234-5678-9abc-def012345678");
+    // ✅ 定义 5% 的速度加成
+    private static final AttributeModifier SEEKER_SPEED_BOOST = new AttributeModifier(
+            SEEKER_SPEED_UUID, "Seeker Speed Bonus", 0.05, AttributeModifier.Operation.MULTIPLY_TOTAL
+    );
 
     public static boolean isGameRunning() {
         return isGameRunning;
@@ -387,6 +398,8 @@ public class GameLoopManager {
         if (currentHits >= maxHits) {
             broadcast(attacker.serverLevel(), victim.getDisplayName().copy().append(" 被抓住了，变成了抓捕者！").withStyle(ChatFormatting.YELLOW));
             makeSeeker(victim, false);
+            // ✅ 立即更新 HUD
+            broadcastHudUpdate(attacker.serverLevel(), true);
             checkSeekerWinCondition(attacker.serverLevel());
         }
     }
@@ -423,16 +436,37 @@ public class GameLoopManager {
     private static void makeSeeker(ServerPlayer player, boolean isStart) {
         player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
             cap.setSeeker(true);
-            cap.setDisguise(null);
+            cap.setDisguise(null); // ✅ 清理伪装
             cap.setHitCount(0);
             syncData(player, true, null);
         });
 
         player.addTag("role_seeker");
-        player.addTag("bhs_hide_health");
+        // ✅ 必须移除这个 Tag，否则抓捕者会像躲藏者一样隐藏血条
+        player.removeTag("bhs_hide_health");
 
         player.setHealth(player.getMaxHealth());
         player.getInventory().clearOrCountMatchingItems(p -> true, -1, player.inventoryMenu.getCraftSlots());
+
+        // ✅ 1. 发放抓捕者装备 (剑 + 指南针/雷达)
+        ItemStack radar = new ItemStack(ModItems.RADAR.get(), 1);
+        ItemStack bow = new ItemStack(ModItems.BOW.get(),1); // ⚠️ 注意：如果你有 ModItems.RADAR，请在这里替换为 new ItemStack(ModItems.RADAR.get());
+
+        player.getInventory().add(radar);
+        player.getInventory().add(bow);
+
+        // ✅ 2. 给予 5% 移动速度加成
+        var speedAttr = player.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speedAttr != null) {
+            // 先尝试移除，防止重复叠加
+            speedAttr.removeModifier(SEEKER_SPEED_UUID);
+            speedAttr.addTransientModifier(SEEKER_SPEED_BOOST);
+        }
+
+        // ✅ 3. 如果不是游戏开始(即抓捕到了躲藏者)，给剩余的躲藏者发放奖励
+        if (!isStart) {
+            distributeHiderBonus(player.serverLevel());
+        }
 
         player.connection.send(new ClientboundSetTitlesAnimationPacket(10, 60, 20));
         Component titleText = Component.literal("你成为了抓捕者！")
@@ -446,6 +480,32 @@ public class GameLoopManager {
         player.playNotifySound(SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.PLAYERS, 1.0f, 1.0f);
     }
 
+    /**
+     * ✅ 辅助方法：给所有存活的躲藏者发放奖励
+     */
+    private static void distributeHiderBonus(ServerLevel level) {
+        // ==================================================
+        // ✅ 定义：追加奖励物品 (每死一个队友给一个)
+        // ==================================================
+        ItemStack vanish = new ItemStack(ModItems.VANISH.get(),1);
+
+        for (ServerPlayer p : level.players()) {
+            if (p.isSpectator()) continue;
+
+            p.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+                // 如果是躲藏者 (!isSeeker)，就发奖励
+                if (!cap.isSeeker()) {
+                    boolean added = p.getInventory().add(vanish.copy());
+
+                    if (added) {
+                        p.displayClientMessage(Component.literal("🎁 队友被抓！获得生存补给！").withStyle(ChatFormatting.GREEN), true);
+                        p.playSound(SoundEvents.NOTE_BLOCK_CHIME.get(), 1.0f, 1.5f);
+                    }
+                }
+            });
+        }
+    }
+
     private static void makeHider(ServerPlayer player, List<BlockState> options) {
         player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
             cap.setSeeker(false);
@@ -455,6 +515,21 @@ public class GameLoopManager {
         });
 
         player.addTag("bhs_hide_health");
+
+        // 1. 清空背包
+        player.getInventory().clearOrCountMatchingItems(p -> true, -1, player.inventoryMenu.getCraftSlots());
+
+        // ==================================================
+        // ✅ 新增：发放躲藏者【初始奖励】
+        // ==================================================
+        ItemStack vanish = new ItemStack(ModItems.VANISH.get(),1);
+        ItemStack seeker_wand = new ItemStack(ModItems.SEEKER_WAND.get(),1);
+        ItemStack decoy = new ItemStack(ModItems.DECOY.get(),1);
+
+        player.getInventory().add(decoy);
+        player.getInventory().add(vanish);
+        player.getInventory().add(seeker_wand);
+        // ==================================================
 
         List<BlockState> myOptions = new ArrayList<>(options);
         Collections.shuffle(myOptions);
@@ -473,6 +548,12 @@ public class GameLoopManager {
 
         player.removeTag("role_seeker");
         player.removeTag("bhs_hide_health");
+
+        // ✅ 清除属性修改器 (移除速度加成)
+        var speedAttr = player.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speedAttr != null) {
+            speedAttr.removeModifier(SEEKER_SPEED_UUID);
+        }
 
         player.setHealth(player.getMaxHealth());
         player.removeAllEffects();
@@ -553,5 +634,28 @@ public class GameLoopManager {
         for (DecoyEntity entity : toRemove) {
             entity.discard();
         }
+    }
+
+    public static void catchHiderImmediately(ServerPlayer seeker, ServerPlayer hider) {
+        if (!isGameRunning) return;
+
+        hider.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+            if (cap.isSeeker()) return;
+
+            // 广播消息
+            broadcast(hider.serverLevel(), net.minecraft.network.chat.Component.literal("🏹 ")
+                    .append(seeker.getDisplayName())
+                    .append(" 射杀了 ")
+                    .append(hider.getDisplayName())
+                    .withStyle(net.minecraft.ChatFormatting.RED));
+
+            // 变为抓捕者
+            makeSeeker(hider, false);
+            // ✅ 立即更新 HUD
+            broadcastHudUpdate(hider.serverLevel(), true);
+
+            // 检查胜利
+            checkSeekerWinCondition(hider.serverLevel());
+        });
     }
 }

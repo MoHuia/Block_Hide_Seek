@@ -41,7 +41,8 @@ public class ConfigSyncHandler {
                             config.radarCooldown,
                             config.vanishMana,
                             config.decoyCount,
-                            config.decoyCooldown
+                            config.decoyCooldown,
+                            config.bowCooldown
                     )
             );
 

@@ -1,5 +1,6 @@
 package com.mohuia.block_hide_seek.client.config;
 
+import com.mohuia.block_hide_seek.item.Bow;
 import com.mohuia.block_hide_seek.item.Decoy;
 import com.mohuia.block_hide_seek.item.Vanish;
 
@@ -15,6 +16,7 @@ public class ClientConfigCache {
     public static int vanishMana = 200;//最大蓝量
     public static int decoyCount = 3;//最大放置数量
     public static int decoyCooldown = 600;//冷却
+    public static int bowCooldown = 100;
 
 
     public static String hiderSpawnTag = "";
@@ -28,7 +30,7 @@ public class ClientConfigCache {
 
     public static List<String> availableTags = new ArrayList<>();
 
-    public static void update(int d, int h, int s, String currentHiderTag, String currentLobbyTag,int rRange, int rCd, int vMana,int dCount,int dCd) {
+    public static void update(int d, int h, int s, String currentHiderTag, String currentLobbyTag,int rRange, int rCd, int vMana,int dCount,int dCd,int bCd) {
         duration = d;
         hits = h;
         seekers = s;
@@ -46,5 +48,8 @@ public class ClientConfigCache {
         decoyCooldown = dCd;
         Decoy.MAX_DECOYS = dCount;
         Decoy.COOLDOWN = dCd;
+
+        bowCooldown = bCd;
+        Bow.COOLDOWN = bCd;
     }
 }

@@ -20,14 +20,12 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.*;
 
 public class Decoy extends Item {
+    public static int MAX_DECOYS = 3;     // 默认 3个
+    public static int COOLDOWN = 600;     // 默认 30秒 (600 ticks)
 
-    // ✅ 核心逻辑：静态哈希表
     // Key: 玩家的 UUID
     // Value: 玩家放置的所有诱饵的 UUID 列表 (LinkedList当队列用)
     private static final Map<UUID, LinkedList<UUID>> PLAYER_DECOYS = new HashMap<>();
-
-    // 最大放置数量
-    private static final int MAX_DECOYS = 3;
 
     public Decoy() {
         super(new Item.Properties()
@@ -66,7 +64,7 @@ public class Decoy extends Item {
             if (disguise == null) return InteractionResultHolder.fail(stack);
 
             // =================================================
-            // ✅ 新增：数量限制与清理逻辑
+            // 数量限制与清理逻辑
             // =================================================
             UUID playerUUID = player.getUUID();
             // 获取该玩家目前的诱饵列表，没有就创建新的
@@ -104,7 +102,7 @@ public class Decoy extends Item {
             userDecoys.addLast(decoy.getUUID());
 
             // 5. 冷却与耐久
-            player.getCooldowns().addCooldown(this, 600); // 3秒冷却
+            player.getCooldowns().addCooldown(this, COOLDOWN);
             stack.hurtAndBreak(1, player, (p) -> p.broadcastBreakEvent(hand));
 
             player.sendSystemMessage(Component.literal("💨 替身已放置 (" + userDecoys.size() + "/" + MAX_DECOYS + ")").withStyle(ChatFormatting.GREEN));

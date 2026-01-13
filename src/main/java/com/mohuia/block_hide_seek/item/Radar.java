@@ -3,6 +3,7 @@ package com.mohuia.block_hide_seek.item;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.C2S.C2SRadarScanRequest;
 import com.mohuia.block_hide_seek.packet.S2C.S2CRevealDisguise;
+import com.mohuia.block_hide_seek.world.ServerGameConfig;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -43,7 +44,12 @@ public class Radar extends Item {
 
         // ✅ 2. 服务端逻辑：原有的搜人功能
         if (!level.isClientSide){
-            AABB searchArea = player.getBoundingBox().inflate((double)SEARCH_RANGE);
+            ServerGameConfig config = ServerGameConfig.get(level);
+            // 优先使用配置值。如果配置出问题（比如读不到），才回退到静态变量 SEARCH_RANGE
+            int actualRange = (config.radarRange > 0) ? config.radarRange : SEARCH_RANGE;
+            int actualCooldown = (config.radarCooldown >= 0) ? config.radarCooldown : COOLDOWN_TICKS;
+
+            AABB searchArea = player.getBoundingBox().inflate((double)actualRange);
             List<Player> players = level.getEntitiesOfClass(Player.class, searchArea, p -> p != player && !p.isSpectator());
 
             Player nearestTarget = null;
@@ -74,14 +80,13 @@ public class Radar extends Item {
                         true
                 );
 
-                player.getCooldowns().addCooldown(this, COOLDOWN_TICKS);
-
+                player.getCooldowns().addCooldown(this, actualCooldown);
             } else {
                 level.playSound(null, player.getX(), player.getY(), player.getZ(),
                         SoundEvents.DISPENSER_FAIL, SoundSource.PLAYERS, 0.4F, 1.2F);
 
                 player.displayClientMessage(Component.literal("§c❌范围内没有其他玩家"), false);
-                player.getCooldowns().addCooldown(this, 20);
+                player.getCooldowns().addCooldown(this, actualCooldown);
             }
         }
         return InteractionResultHolder.success(player.getItemInHand(UsedHand));

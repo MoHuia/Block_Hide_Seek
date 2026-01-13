@@ -11,19 +11,19 @@ import net.minecraftforge.network.PacketDistributor;
 
 import java.util.function.Supplier;
 
-
 public record C2SUpdateGameSettings(int duration, int hits, int seekers, String hiderTag, String lobbyTag) {
 
-    // 编码：写入缓冲区
+    // 编码：只写入这 5 个游戏规则字段
     public static void encode(C2SUpdateGameSettings msg, FriendlyByteBuf buf) {
         buf.writeInt(msg.duration);
         buf.writeInt(msg.hits);
         buf.writeInt(msg.seekers);
         buf.writeUtf(msg.hiderTag);
         buf.writeUtf(msg.lobbyTag);
+        // ❌ 删除那行 buf.writeInt(msg.)，这个包不传雷达数据
     }
 
-    // 解码：从缓冲区读取
+    // 解码
     public static C2SUpdateGameSettings decode(FriendlyByteBuf buf) {
         return new C2SUpdateGameSettings(
                 buf.readInt(),
@@ -38,32 +38,37 @@ public record C2SUpdateGameSettings(int duration, int hits, int seekers, String 
     public static void handle(C2SUpdateGameSettings msg, Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
             ServerPlayer player = ctx.get().getSender();
-            // 权限检查：只有OP/管理员(权限等级2及以上)可以执行
             if (player != null && player.hasPermissions(2)) {
 
-                // 1. 获取并更新服务端配置
+                // 1. 获取服务端当前配置
                 ServerGameConfig config = ServerGameConfig.get(player.level());
 
-                // record 的字段访问方式是 msg.fieldName()
+                // 2. 只更新游戏规则 (雷达数据保持不变)
                 config.gameDurationSeconds = msg.duration();
                 config.hitsToConvert = msg.hits();
                 config.seekerCount = msg.seekers();
                 config.gameMapTag = msg.hiderTag();
                 config.lobbyTag = msg.lobbyTag();
 
-                // 必须标记为脏数据，否则服务器重启后设置会回滚
-                config.setDirty();
+                config.setDirty(); // 保存
 
                 player.sendSystemMessage(Component.literal("✅ 游戏设置已更新！"));
 
-                // 2. 广播给所有玩家，同步他们的客户端缓存
+                // 3. 广播同步 (关键点)
+                // S2CSyncConfig 需要7个参数。
+                // 前5个用新的，后2个(雷达)用服务端现有的 config.radarRange
                 PacketHandler.INSTANCE.send(PacketDistributor.ALL.noArg(),
                         new S2CSyncConfig(
-                                msg.duration(),
-                                msg.hits(),
-                                msg.seekers(),
-                                msg.hiderTag(),
-                                msg.lobbyTag()
+                                config.gameDurationSeconds, // 新值
+                                config.hitsToConvert,       // 新值
+                                config.seekerCount,         // 新值
+                                config.gameMapTag,          // 新值
+                                config.lobbyTag,            // 新值
+                                config.radarRange,
+                                config.radarCooldown,
+                                config.vanishMana,
+                                config.decoyCount,
+                                config.decoyCooldown
                         )
                 );
             }

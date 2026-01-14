@@ -1,5 +1,6 @@
 package com.mohuia.block_hide_seek.packet.C2S;
 
+import com.mohuia.block_hide_seek.game.GameCombatManager; //
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
@@ -22,8 +23,7 @@ public class C2SAttackRaycast {
             ServerPlayer player = ctx.get().getSender();
             if (player == null) return;
 
-            // ✅ 服务端判断：游戏进行中才处理
-            com.mohuia.block_hide_seek.game.GameLoopManager.onSeekerLeftClickRaycast(player, msg.debugParticles);
+            GameCombatManager.performSeekerAttack(player, msg.debugParticles);
         });
         ctx.get().setPacketHandled(true);
     }

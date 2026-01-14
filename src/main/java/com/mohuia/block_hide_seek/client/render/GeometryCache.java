@@ -9,15 +9,17 @@ import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.*;
 
+import static com.mohuia.block_hide_seek.item.Radar.SEARCH_RANGE;
+
 public class GeometryCache {
 
     public static final GeometryCache RADAR_RANGE = new GeometryCache();
     public static GeometryCache getInstance() { return RADAR_RANGE; }
 
     private static final long EXPIRE_TIME = 4000L;
-    private static final int SCAN_RADIUS = 30;
+    //private static final int SCAN_RADIUS = 30;
     private static final long EXPAND_MS = 1000L;
-    private static final double WAVE_SPEED = SCAN_RADIUS / (EXPAND_MS / 1000.0);
+    private static final double WAVE_SPEED = SEARCH_RANGE / (EXPAND_MS / 1000.0);
 
     public static final class ScanTarget {
         public final UUID uuid;
@@ -110,9 +112,9 @@ public class GeometryCache {
         int pz = (int) Math.floor(playerZ);
 
         // 1) 扫描地形 (保持不变，显示网格)
-        for (int x = px - SCAN_RADIUS; x <= px + SCAN_RADIUS; x++) {
-            for (int z = pz - SCAN_RADIUS; z <= pz + SCAN_RADIUS; z++) {
-                if ((x - px)*(x - px) + (z - pz)*(z - pz) > SCAN_RADIUS * SCAN_RADIUS) continue;
+        for (int x = px - SEARCH_RANGE; x <= px + SEARCH_RANGE; x++) {
+            for (int z = pz - SEARCH_RANGE; z <= pz + SEARCH_RANGE; z++) {
+                if ((x - px)*(x - px) + (z - pz)*(z - pz) > SEARCH_RANGE * SEARCH_RANGE) continue;
                 for (int y = py - 2; y <= py + 3; y++) {
                     mPos.set(x, y, z);
                     BlockState state = level.getBlockState(mPos);
@@ -142,7 +144,7 @@ public class GeometryCache {
             double dx = p.getX() - playerX;
             double dz = p.getZ() - playerZ;
             double r = Math.sqrt(dx*dx + dz*dz);
-            if (r <= SCAN_RADIUS) {
+            if (r <= SEARCH_RANGE) {
                 // 计算波浪到达的时间，产生延迟效果
                 long triggerMs = now + (long)((r / WAVE_SPEED) * 1000.0);
                 targets.add(new ScanTarget(p.getUUID(), p.getX(), p.getY(), p.getZ(), r, triggerMs));
@@ -175,7 +177,7 @@ public class GeometryCache {
                 double dx = t.x - originX;
                 double dz = t.z - originZ;
                 double r = Math.sqrt(dx*dx + dz*dz);
-                if (r <= SCAN_RADIUS) {
+                if (r <= SEARCH_RANGE) {
                     long triggerMs = now + (long)((r / WAVE_SPEED) * 1000.0);
                     targets.add(new ScanTarget(t.uuid, t.x, t.y, t.z, r, triggerMs));
                 }
@@ -193,9 +195,9 @@ public class GeometryCache {
         int py = (int) Math.floor(centerY);
         int pz = (int) Math.floor(centerZ);
 
-        for (int x = px - SCAN_RADIUS; x <= px + SCAN_RADIUS; x++) {
-            for (int z = pz - SCAN_RADIUS; z <= pz + SCAN_RADIUS; z++) {
-                if ((x - px) * (x - px) + (z - pz) * (z - pz) > SCAN_RADIUS * SCAN_RADIUS) continue;
+        for (int x = px - SEARCH_RANGE; x <= px + SEARCH_RANGE; x++) {
+            for (int z = pz - SEARCH_RANGE; z <= pz + SEARCH_RANGE; z++) {
+                if ((x - px) * (x - px) + (z - pz) * (z - pz) > SEARCH_RANGE * SEARCH_RANGE) continue;
                 for (int y = py - 15; y <= py + 15; y++) {
                     mPos.set(x, y, z);
                     BlockState state = level.getBlockState(mPos);

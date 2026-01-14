@@ -31,6 +31,9 @@ public class ModItems {
     //诱饵道具
     public static final RegistryObject<Item> DECOY =
             ITEMS.register("decoy", Decoy::new);
+    // 神弓
+    public static final RegistryObject<Item> BOW =
+            ITEMS.register("bow", () -> new Bow(new Item.Properties().durability(384)));
 
 
     //注册“躲猫猫”标签页

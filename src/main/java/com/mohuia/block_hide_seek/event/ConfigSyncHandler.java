@@ -36,7 +36,14 @@ public class ConfigSyncHandler {
                             config.hitsToConvert,
                             config.seekerCount,
                             config.gameMapTag,
-                            config.lobbyTag
+                            config.lobbyTag,
+                            config.radarRange,
+                            config.radarCooldown,
+                            config.vanishMana,
+                            config.decoyCount,
+                            config.decoyCooldown,
+                            config.bowCooldown,
+                            config.hidingTimeSeconds
                     )
             );
 

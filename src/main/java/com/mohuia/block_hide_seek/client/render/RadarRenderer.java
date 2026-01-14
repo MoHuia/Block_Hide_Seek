@@ -1,5 +1,6 @@
 package com.mohuia.block_hide_seek.client.render;
 
+import com.mohuia.block_hide_seek.item.Radar;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -16,6 +17,17 @@ import java.util.Random;
 
 // ✅ 所有的引用都指向本地包
 public class RadarRenderer extends RenderType {
+
+    private static final double BASE_RANGE = 30.0;  // 你目前设计稿的绿色扫描基准
+    private static final double BASE_PULSE = 20.0;  // 你目前设计稿的红色脉冲基准
+
+    private static double scaleRange(double v) {
+        return v * (Radar.SEARCH_RANGE / BASE_RANGE);
+    }
+
+    private static double scalePulse(double v) {
+        return v * (Radar.PULSE_RED / BASE_PULSE);
+    }
 
     public RadarRenderer(String name, VertexFormat format, VertexFormat.Mode mode, int bufferSize,
                          boolean affectsCrumbling, boolean sortOnUpload, Runnable setupState, Runnable clearState) {
@@ -44,18 +56,21 @@ public class RadarRenderer extends RenderType {
     private static final long FADE_MS   = 1000L;
     private static final long TOTAL_MS  = EXPAND_MS + HOLD_MS + FADE_MS;
 
+    //扫描到人的红色脉冲
     private static final double PULSE_RADIUS = 20.0;
     private static final long PULSE_EXPAND_MS = 500L;
     private static final long PULSE_HOLD_MS   = 1500L;
     private static final long PULSE_FADE_MS   = 1000L;
     private static final long PULSE_TOTAL_MS  = PULSE_EXPAND_MS + PULSE_HOLD_MS + PULSE_FADE_MS;
 
+    //绿色雷达的扫描范围
     private static final double RANGE_START_MAX_DIST = 5.0;
     private static final double RANGE_END_MAX_DIST = 30.0;
     private static final double RANGE_START_OUTER = 3.0;
     private static final double RANGE_END_OUTER = 30.0;
     private static final double RANGE_START_INNER = 0.0;
     private static final double RANGE_END_INNER = 25.0;
+
 
     private static final float COLOR_START_R = 0.1f;
     private static final float COLOR_START_G = 0.2f;
@@ -113,9 +128,9 @@ public class RadarRenderer extends RenderType {
                 energyMain = (float) (1.0 - smoothstep(clamp01(tFade)));
             }
 
-            double maxDist = lerp(RANGE_START_MAX_DIST, RANGE_END_MAX_DIST, tExpand);
-            double outerRad = lerp(RANGE_START_OUTER, RANGE_END_OUTER, tExpand);
-            double innerRad = lerp(RANGE_START_INNER, RANGE_END_INNER, tExpand);
+            double maxDist  = scaleRange(lerp(RANGE_START_MAX_DIST, RANGE_END_MAX_DIST, tExpand));
+            double outerRad = scaleRange(lerp(RANGE_START_OUTER,    RANGE_END_OUTER,    tExpand));
+            double innerRad = scaleRange(lerp(RANGE_START_INNER,    RANGE_END_INNER,    tExpand));
 
             float rr = lerpFloat(COLOR_START_R, COLOR_END_R, (float) tExpand);
             float rg = lerpFloat(COLOR_START_G, COLOR_END_G, (float) tExpand);
@@ -175,11 +190,16 @@ public class RadarRenderer extends RenderType {
                         energyPulse = (float) (1.0 - smoothstep(clamp01(tFade)));
                     }
 
-                    double pulseOuter = lerp(0.6, PULSE_RADIUS, tPulseExpand);
-                    double pulseInner = Math.max(0.0, pulseOuter - 1.2);
+                    double pulseRadius = Radar.PULSE_RED; // 最终半径直接读取
+
+                    double pulseOuter = scalePulse(lerp(0.6, BASE_PULSE, tPulseExpand)); // 0.6~20 按脉冲比例放大
+                    double pulseInner = Math.max(0.0, pulseOuter - scalePulse(1.2));     // 1.2 的厚度也按 20 等比例
+
+                    double limit = pulseRadius + scalePulse(1.5);
+                    double maxSq = limit * limit;
 
                     var pulseShader = new RaderEnergyShader()
-                            .range(PULSE_RADIUS, pulseOuter, pulseInner)
+                            .range(pulseRadius, pulseOuter, pulseInner)
                             .color(0.60f, 0.02f, 0.01f)
                             .deadColor(0.02f, 0.10f, 0.02f)
                             .decayPow(2.6, 3.2)
@@ -195,8 +215,6 @@ public class RadarRenderer extends RenderType {
                             .detail(1)
                             .clear();
 
-                    double limit = PULSE_RADIUS + 1.5;
-                    double maxSq = limit * limit;
                     for (QuadFxAPI.QuadJob job : entry.quads) {
                         double dx = job.cx - p.x;
                         double dy = job.cy - p.y;
@@ -235,7 +253,8 @@ public class RadarRenderer extends RenderType {
         double t = clamp01((double) elapsed / (double) DIGI_MS);
 
         // 当前球壳半径
-        double rNow = DIGI_RADIUS_MAX * t;
+        double digiRadiusMax = scaleRange(DIGI_RADIUS_MAX); // 25 按 30 等比例
+        double rNow = digiRadiusMax * t;
 
         // 本帧生成数量
         int quadsThisFrame = estimateQuadsThisFrame(t);
@@ -275,7 +294,7 @@ public class RadarRenderer extends RenderType {
 
         for (int i = 0; i < tries && needed > 0; i++) {
             // ... 原有的生成逻辑 ...
-            double shell = 1.5 + 0.1 * rNow;
+            double shell = scaleRange(1.5) + 0.1 * rNow;
             double rr = Math.max(0.5, rNow - shell + rnd.nextDouble() * (shell * 2.0));
 
             double u = rnd.nextDouble();

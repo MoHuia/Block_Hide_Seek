@@ -27,8 +27,13 @@ import java.util.function.Consumer;
 
 public class Radar extends Item implements GeoItem{
     //静态变量，用于配置
-    public static int SEARCH_RANGE = 50;
+    public static int SEARCH_RANGE = 30;
+    public static int PULSE_RED = 20;     //扫描到的红色范围提示
     public static int COOLDOWN_TICKS = 60;
+    public static double COOLDOWN_RETURN = 0.2;//PULSE_RADIUS
+    //开启变量（用于动画）
+
+    //
     //动画模型
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     public Radar(Properties properties) {
@@ -112,7 +117,7 @@ public class Radar extends Item implements GeoItem{
                         SoundEvents.DISPENSER_FAIL, SoundSource.PLAYERS, 0.4F, 1.2F);
 
                 player.displayClientMessage(Component.literal("§c❌范围内没有其他玩家"), false);
-                player.getCooldowns().addCooldown(this, 20);
+                player.getCooldowns().addCooldown(this, (int)(COOLDOWN_TICKS*(1-COOLDOWN_RETURN)));
             }
         }
         return InteractionResultHolder.success(player.getItemInHand(UsedHand));

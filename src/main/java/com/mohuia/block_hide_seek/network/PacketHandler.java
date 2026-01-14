@@ -56,6 +56,11 @@ public class PacketHandler {
         INSTANCE.registerMessage(id++, S2CRadarScanSync.class, S2CRadarScanSync::encode, S2CRadarScanSync::decode, S2CRadarScanSync::handle);
         // 雷达显示伪装（私密包）
         INSTANCE.registerMessage(id++, S2CRevealDisguise.class, S2CRevealDisguise::encode, S2CRevealDisguise::decode, S2CRevealDisguise::handle);
+
+        INSTANCE.registerMessage(id++, C2SUpdateItemConfig.class,
+                C2SUpdateItemConfig::encode,
+                C2SUpdateItemConfig::decode,
+                C2SUpdateItemConfig::handle);
     }
 
     // 补全缺失的发送方法

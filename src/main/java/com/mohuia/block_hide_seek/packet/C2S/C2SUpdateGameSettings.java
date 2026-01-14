@@ -11,16 +11,15 @@ import net.minecraftforge.network.PacketDistributor;
 
 import java.util.function.Supplier;
 
-public record C2SUpdateGameSettings(int duration, int hits, int seekers, String hiderTag, String lobbyTag) {
-
-    // 编码：只写入这 5 个游戏规则字段
+public record C2SUpdateGameSettings(int duration, int hits, int seekers, String hiderTag, String lobbyTag,int hidingTime) {
+    //编码
     public static void encode(C2SUpdateGameSettings msg, FriendlyByteBuf buf) {
         buf.writeInt(msg.duration);
         buf.writeInt(msg.hits);
         buf.writeInt(msg.seekers);
         buf.writeUtf(msg.hiderTag);
         buf.writeUtf(msg.lobbyTag);
-        // ❌ 删除那行 buf.writeInt(msg.)，这个包不传雷达数据
+        buf.writeInt(msg.hidingTime);
     }
 
     // 解码
@@ -30,7 +29,8 @@ public record C2SUpdateGameSettings(int duration, int hits, int seekers, String 
                 buf.readInt(),
                 buf.readInt(),
                 buf.readUtf(),
-                buf.readUtf()
+                buf.readUtf(),
+                buf.readInt()
         );
     }
 
@@ -49,27 +49,27 @@ public record C2SUpdateGameSettings(int duration, int hits, int seekers, String 
                 config.seekerCount = msg.seekers();
                 config.gameMapTag = msg.hiderTag();
                 config.lobbyTag = msg.lobbyTag();
+                config.hidingTimeSeconds = msg.hidingTime();
 
                 config.setDirty(); // 保存
 
                 player.sendSystemMessage(Component.literal("✅ 游戏设置已更新！"));
 
                 // 3. 广播同步 (关键点)
-                // S2CSyncConfig 需要7个参数。
-                // 前5个用新的，后2个(雷达)用服务端现有的 config.radarRange
                 PacketHandler.INSTANCE.send(PacketDistributor.ALL.noArg(),
                         new S2CSyncConfig(
-                                config.gameDurationSeconds, // 新值
-                                config.hitsToConvert,       // 新值
-                                config.seekerCount,         // 新值
-                                config.gameMapTag,          // 新值
-                                config.lobbyTag,            // 新值
+                                config.gameDurationSeconds,
+                                config.hitsToConvert,
+                                config.seekerCount,
+                                config.gameMapTag,
+                                config.lobbyTag,
                                 config.radarRange,
                                 config.radarCooldown,
                                 config.vanishMana,
                                 config.decoyCount,
                                 config.decoyCooldown,
-                                config.bowCooldown
+                                config.bowCooldown,
+                                config.hidingTimeSeconds
                         )
                 );
             }

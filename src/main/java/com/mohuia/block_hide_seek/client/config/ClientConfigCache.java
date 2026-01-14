@@ -17,6 +17,7 @@ public class ClientConfigCache {
     public static int decoyCount = 3;//最大放置数量
     public static int decoyCooldown = 600;//冷却
     public static int bowCooldown = 100;
+    public static int hidingTime = 30;
 
 
     public static String hiderSpawnTag = "";
@@ -30,7 +31,7 @@ public class ClientConfigCache {
 
     public static List<String> availableTags = new ArrayList<>();
 
-    public static void update(int d, int h, int s, String currentHiderTag, String currentLobbyTag,int rRange, int rCd, int vMana,int dCount,int dCd,int bCd) {
+    public static void update(int d, int h, int s, String currentHiderTag, String currentLobbyTag,int rRange, int rCd, int vMana,int dCount,int dCd,int bCd,int hTime) {
         duration = d;
         hits = h;
         seekers = s;
@@ -51,5 +52,7 @@ public class ClientConfigCache {
 
         bowCooldown = bCd;
         Bow.COOLDOWN = bCd;
+
+        hidingTime = hTime;
     }
 }

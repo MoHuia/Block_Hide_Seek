@@ -63,7 +63,8 @@ public record C2SUpdateItemConfig(int radarRange, int radarCooldown,int vanishMa
                                 config.vanishMana,
                                 config.decoyCount,
                                 config.decoyCooldown,
-                                config.bowCooldown
+                                config.bowCooldown,
+                                config.hidingTimeSeconds
                         )
                 );
             }

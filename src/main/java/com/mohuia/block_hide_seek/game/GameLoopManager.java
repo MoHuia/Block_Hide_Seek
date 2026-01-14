@@ -12,6 +12,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.entity.EntityTypeTest;
@@ -28,8 +30,16 @@ public class GameLoopManager {
     private static boolean isGameRunning = false;
     private static int ticksRemaining = 0;
 
+    // 新增：躲藏阶段倒计时
+    private static int hidingPhaseTicks = 0;
+    private static final int DEFAULT_HIDING_TIME_SECONDS = 30;
+
     public static boolean isGameRunning() { return isGameRunning; }
     public static int getTicksRemaining() { return ticksRemaining; }
+
+    public static boolean isHidingPhase() {
+        return isGameRunning && hidingPhaseTicks > 0;
+    }
 
     public static void startGame(ServerPlayer starter) {
         if (isGameRunning) {
@@ -58,6 +68,8 @@ public class GameLoopManager {
 
         isGameRunning = true;
         ticksRemaining = config.gameDurationSeconds * 20;
+        // 设置躲藏时间 (30秒)
+        hidingPhaseTicks = DEFAULT_HIDING_TIME_SECONDS * 20;
 
         // 重置所有玩家
         for (ServerPlayer p : level.players()) GameRoleManager.resetPlayer(p);
@@ -77,7 +89,9 @@ public class GameLoopManager {
         for (int i = 0; i < config.seekerCount; i++) {
             ServerPlayer p = players.get(i);
             GameRoleManager.makeSeeker(p, true);
-            teleportIfMapSet(p, mapData, mapTag, shouldTeleport, level);
+            // 关键：游戏开始时锁住抓捕者
+            GameRoleManager.lockPlayerMovement(p, hidingPhaseTicks);
+            teleportIfMapSet(p, mapData, config.gameMapTag, mapData != null, level);
         }
         // 分配躲藏者
         for (int i = config.seekerCount; i < players.size(); i++) {
@@ -87,7 +101,7 @@ public class GameLoopManager {
         }
 
         MinecraftForge.EVENT_BUS.post(new GameStartEvent(level));
-        GameNetworkHelper.broadcast(level, Component.literal("游戏开始！限时 " + config.gameDurationSeconds + " 秒！").withStyle(ChatFormatting.GREEN));
+        GameNetworkHelper.broadcast(level, Component.literal("⏳ 躲藏阶段！躲藏者有 " + DEFAULT_HIDING_TIME_SECONDS + " 秒时间躲藏！").withStyle(ChatFormatting.YELLOW));
         GameNetworkHelper.updateHud(level, true, ticksRemaining);
     }
 
@@ -107,6 +121,7 @@ public class GameLoopManager {
 
     public static void stopGame(ServerLevel level, WinnerType winner, Component reason) {
         if (!isGameRunning) return;
+        hidingPhaseTicks = 0;
         isGameRunning = false;
 
         cleanupDecoys(level);
@@ -132,6 +147,28 @@ public class GameLoopManager {
 
     public static void tick(ServerLevel level) {
         if (!isGameRunning) return;
+
+        // --- 新增：躲藏阶段逻辑 ---
+        if (hidingPhaseTicks > 0) {
+            hidingPhaseTicks--;
+
+            // 倒计时提示
+            if (hidingPhaseTicks > 0 && hidingPhaseTicks <= 100 && hidingPhaseTicks % 20 == 0) {
+                // 最后5秒倒计时
+                int sec = hidingPhaseTicks / 20;
+                GameNetworkHelper.broadcast(level, Component.literal("抓捕者将在 " + sec + " 秒后释放！").withStyle(ChatFormatting.RED));
+                level.playSound(null, new BlockPos(0, 100, 0), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.MASTER, 1.0f, 1.0f);
+            }
+
+            // 阶段结束：释放抓捕者
+            if (hidingPhaseTicks == 0) {
+                releaseSeekers(level);
+            }
+
+            // 躲藏阶段不扣除游戏总时间 ticksRemaining，也不检查胜利条件
+            return;
+        }
+
         ticksRemaining--;
 
         if (ticksRemaining <= 0) {
@@ -153,6 +190,28 @@ public class GameLoopManager {
 
         if (ticksRemaining % 20 == 0) checkSeekerWinCondition(level);
         if (ticksRemaining % 20 == 0) GameNetworkHelper.updateHud(level, true, ticksRemaining);
+    }
+
+    private static void releaseSeekers(ServerLevel level) {
+        GameNetworkHelper.broadcast(level, Component.literal("⚔️ 抓捕开始！抓捕者已释放！").withStyle(ChatFormatting.RED, ChatFormatting.BOLD));
+
+        for (ServerPlayer player : level.players()) {
+            player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+                if (cap.isSeeker()) {
+                    GameRoleManager.unlockPlayerMovement(player);
+                    player.playNotifySound(SoundEvents.ENDER_DRAGON_GROWL, SoundSource.HOSTILE, 1.0f, 0.8f);
+
+                    // 再次发送 Title 提醒
+                    level.getServer().getCommands().performPrefixedCommand(
+                            player.createCommandSourceStack().withSuppressedOutput(),
+                            "title " + player.getScoreboardName() + " title {\"text\":\"出击！\", \"color\":\"red\"}"
+                    );
+                } else {
+                    player.playNotifySound(SoundEvents.GHAST_SCREAM, SoundSource.HOSTILE, 1.0f, 0.8f);
+                    player.displayClientMessage(Component.literal("⚠️ 抓捕者以此出动，藏好！").withStyle(ChatFormatting.RED), true);
+                }
+            });
+        }
     }
 
     public static void checkSeekerWinCondition(ServerLevel level) {

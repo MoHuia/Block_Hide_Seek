@@ -13,6 +13,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ItemStack;
@@ -30,6 +32,36 @@ public class GameRoleManager {
     private static final AttributeModifier SEEKER_SPEED_BOOST = new AttributeModifier(
             SEEKER_SPEED_UUID, "Seeker Speed Bonus", 0.05, AttributeModifier.Operation.MULTIPLY_TOTAL
     );
+
+    public static void lockPlayerMovement(ServerPlayer player, int durationTicks) {
+        // 失明
+        player.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, durationTicks, 0, false, false));
+        // 缓慢 255级 (无法移动)
+        player.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, durationTicks, 255, false, false));
+        // 跳跃提升 250级 (无法跳跃，250是无符号byte转换后的值，实际上是负数效果)
+        player.addEffect(new MobEffectInstance(MobEffects.JUMP, durationTicks, 250, false, false));
+
+        // 移除可能存在的速度加成，防止冲突
+        var speedAttr = player.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speedAttr != null) speedAttr.removeModifier(SEEKER_SPEED_UUID);
+    }
+
+    /**
+     * 解锁玩家：移除 Debuff，重新应用职业 Buff
+     */
+    public static void unlockPlayerMovement(ServerPlayer player) {
+        player.removeEffect(MobEffects.BLINDNESS);
+        player.removeEffect(MobEffects.MOVEMENT_SLOWDOWN);
+        player.removeEffect(MobEffects.JUMP);
+
+        // 重新应用抓捕者的速度加成 (如果是抓捕者)
+        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+            if (cap.isSeeker()) {
+                applySeekerAttributes(player);
+            }
+        });
+    }
+
 
     public static void makeSeeker(ServerPlayer player, boolean isStart) {
         player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {

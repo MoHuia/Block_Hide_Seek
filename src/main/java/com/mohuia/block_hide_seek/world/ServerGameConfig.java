@@ -19,6 +19,7 @@ public class ServerGameConfig extends SavedData {
     public int decoyCount = 3;         //默认最大3个
     public int decoyCooldown = 600;     //默认冷却30s
     public int bowCooldown = 100;
+    public int hidingTimeSeconds = 30;
 
     public static ServerGameConfig get(Level level) {
         if (level instanceof ServerLevel serverLevel) {
@@ -35,6 +36,7 @@ public class ServerGameConfig extends SavedData {
         data.hitsToConvert = tag.getInt("hits");
         data.seekerCount = tag.getInt("seekers");
         //防止数据丢失
+        if (tag.contains("hiding_time")) { data.hidingTimeSeconds = tag.getInt("hiding_time"); }
         if (tag.contains("map_tag")) {data.gameMapTag = tag.getString("map_tag");}
         if (tag.contains("lobby_tag")) {data.lobbyTag = tag.getString("lobby_tag");}
         if (tag.contains("radar_range")) {data.radarRange = tag.getInt("radar_range");}
@@ -56,6 +58,8 @@ public class ServerGameConfig extends SavedData {
         tag.putInt("duration", gameDurationSeconds);
         tag.putInt("hits", hitsToConvert);
         tag.putInt("seekers", seekerCount);
+        tag.putInt("hiding_time", hidingTimeSeconds);
+
         tag.putString("map_tag", gameMapTag == null ? "" : gameMapTag);
         tag.putString("lobby_tag", lobbyTag == null ? "" : lobbyTag);
         tag.putInt("radar_range", radarRange);

@@ -42,7 +42,8 @@ public class ConfigSyncHandler {
                             config.vanishMana,
                             config.decoyCount,
                             config.decoyCooldown,
-                            config.bowCooldown
+                            config.bowCooldown,
+                            config.hidingTimeSeconds
                     )
             );
 

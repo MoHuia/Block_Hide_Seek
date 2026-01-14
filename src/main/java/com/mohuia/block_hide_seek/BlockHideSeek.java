@@ -8,8 +8,6 @@ import com.mohuia.block_hide_seek.entity.DecoyEntity;
 import com.mohuia.block_hide_seek.item.ModItems;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mojang.logging.LogUtils;
-import net.minecraft.client.renderer.item.ItemProperties;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
@@ -53,28 +51,7 @@ public class BlockHideSeek {
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
-
         event.enqueueWork(PacketHandler::register);
-
-        // 2. ✅【新增】注册神弓的拉弓动画属性
-        // 这段代码必须在 enqueueWork 中运行，确保是线程安全的
-        event.enqueueWork(() -> {
-            // "pull" 属性：决定拉弓的程度 (0.0 - 1.0)
-            ItemProperties.register(ModItems.BOW.get(), ResourceLocation.parse("pull"),
-                    (stack, level, entity, seed) -> {
-                        if (entity == null) {
-                            return 0.0F;
-                        } else {
-                            return entity.getUseItem() != stack ? 0.0F : (float)(stack.getUseDuration() - entity.getUseItemRemainingTicks()) / 20.0F;
-                        }
-                    });
-
-            // "pulling" 属性：决定是否正在拉弓 (0 或 1)
-            ItemProperties.register(ModItems.BOW.get(), ResourceLocation.parse("pulling"),
-                    (stack, level, entity, seed) -> {
-                        return entity != null && entity.isUsingItem() && entity.getUseItem() == stack ? 1.0F : 0.0F;
-                    });
-        });
     }
 
     private void clientSetup(final FMLClientSetupEvent event) {
@@ -91,6 +68,4 @@ public class BlockHideSeek {
     public void onRegisterCommands(RegisterCommandsEvent event) {
         BlockHuntCommand.register(event.getDispatcher());
     }
-
-
 }

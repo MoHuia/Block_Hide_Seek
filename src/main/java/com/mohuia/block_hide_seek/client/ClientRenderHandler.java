@@ -2,6 +2,7 @@ package com.mohuia.block_hide_seek.client;
 
 import com.mohuia.block_hide_seek.BlockHideSeek;
 import com.mohuia.block_hide_seek.client.render.RadarRenderer;
+import com.mohuia.block_hide_seek.client.vfx.ObjRender;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
@@ -38,6 +39,10 @@ public class ClientRenderHandler {
 
         // ✅ 调用本地雷达渲染
         RadarRenderer.render(poseStack, bufferSource);
+        int fullBright = 0x00F000F0;
+
+        // ✅ 只调用：跟随玩家渲染 OBJ
+        //ObjRender.renderFollowPlayer(poseStack, bufferSource, mc, event.getPartialTick());
 
         // 统一结束批处理 (RadarRenderer 内部已经处理了自己的 endBatch，但这里作为一个良好的习惯，可以 endBatch 其他层)
         // bufferSource.endBatch(ModRenderTypes.NORMAL_LINES);

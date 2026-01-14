@@ -97,6 +97,7 @@ public class DecoyEntity extends Entity {
 
         if (source.getEntity() instanceof ServerPlayer attacker) {
 
+            // ✅ 2. 修复点：直接使用 Lambda 表达式，或者使用 IGameData::isSeeker
             boolean isSeeker = attacker.getCapability(GameDataProvider.CAP)
                     .map(cap -> cap.isSeeker()) // 这样写最稳妥，不需要知道 IGameData 在哪里定义的静态方法
                     .orElse(false);

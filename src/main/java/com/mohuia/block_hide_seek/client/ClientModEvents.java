@@ -2,9 +2,12 @@ package com.mohuia.block_hide_seek.client;
 
 import com.mohuia.block_hide_seek.BlockHideSeek;
 import com.mohuia.block_hide_seek.client.render.DecoyRenderer;
+import com.mohuia.block_hide_seek.client.render.RadarRenderer;
 import com.mohuia.block_hide_seek.entity.EntityInit;
+import com.mohuia.block_hide_seek.item.ModItems;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.EntityRenderersEvent;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -17,4 +20,5 @@ public class ClientModEvents {
         // 告诉游戏：当需要渲染 "DECOY_ENTITY" 时，请使用 "DecoyRenderer"
         event.registerEntityRenderer(EntityInit.DECOY_ENTITY.get(), DecoyRenderer::new);
     }
+
 }

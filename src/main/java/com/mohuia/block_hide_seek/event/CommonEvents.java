@@ -3,16 +3,16 @@ package com.mohuia.block_hide_seek.event;
 import com.mohuia.block_hide_seek.BlockHideSeek;
 import com.mohuia.block_hide_seek.data.GameDataProvider;
 import com.mohuia.block_hide_seek.game.GameLoopManager;
-import com.mohuia.block_hide_seek.item.Vanish;
 import com.mohuia.block_hide_seek.network.PacketHandler;
 import com.mohuia.block_hide_seek.packet.S2C.S2CSyncGameData;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.AttackEntityEvent;
@@ -124,97 +124,72 @@ public class CommonEvents {
     }
 
     // ==========================================
-    // 3. 玩家 Tick 处理 (物理修正 + 隐身消耗逻辑)
+    // 3. 物理碰撞箱修正 (核心优化)
     // ==========================================
 
     /**
-     * 1. 解决 "变小后无法钻洞" 的问题。
-     * 2. 处理隐身道具的耐久消耗逻辑。
+     * 解决 "变小后无法钻洞" 的问题。
+     * 原理：Mixin 修改了 dimensions，但服务端实体有时不会立即刷新 boundingBox。
+     * 这里强制检查并刷新。
      */
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         // 1. 基础检查：必须是服务端，必须是 Tick 结束阶段
         if (event.phase != TickEvent.Phase.END || event.player.level().isClientSide) return;
 
-        if (event.player instanceof ServerPlayer player) {
-            player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+        Player player = event.player;
 
-                // --- A. 物理碰撞箱修正 ---
-                if (!cap.isSeeker() && cap.getDisguise() != null) {
-                    // 获取 "当前实际生效的碰撞箱高度"
-                    float actualHeight = player.getBbHeight();
-                    // 获取 "根据姿态和伪装应该有的理论高度"
-                    float expectedHeight = player.getDimensions(player.getPose()).height;
+        // 2. 性能优化：只有当玩家处于伪装状态时才进行检查
+        player.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
+            if (!cap.isSeeker() && cap.getDisguise() != null) {
 
-                    // 误差检测：如果误差超过 1cm，说明碰撞箱滞后了
-                    if (Math.abs(expectedHeight - actualHeight) > 0.01f) {
-                        player.refreshDimensions();
-                    }
+                // 获取 "当前实际生效的碰撞箱高度"
+                float actualHeight = player.getBbHeight();
+                // 获取 "根据姿态和伪装应该有的理论高度" (由 Mixin/Entity.getDimensions 定义)
+                float expectedHeight = player.getDimensions(player.getPose()).height;
+
+                // 3. 误差检测：如果误差超过 1cm，说明碰撞箱滞后了
+                if (Math.abs(expectedHeight - actualHeight) > 0.01f) {
+                    // 强制刷新：这会重新计算 AABB，让玩家能钻进 1格高的洞
+                    player.refreshDimensions();
                 }
+            }
 
-                // --- B. ✅ 新增：隐身耐久消耗逻辑 ---
-                if (cap.isInvisible()) {
-                    ItemStack mainHandItem = player.getMainHandItem();
-                    ItemStack offHandItem = player.getOffhandItem();
+            // --- B. ✅ 新增：隐身倒计时逻辑 ---
+            if (cap.isInvisible()) {
+                int timer = cap.getInvisibilityTimer();
+                if (timer > 0) {
+                    cap.setInvisibilityTimer(timer - 1);
 
-                    ItemStack vanishStack = null;
+                    // ✅ 每秒 (20 tick) 在 Action Bar 显示一次倒计时
+                    if (timer % 20 == 0) {
+                        int secondsLeft = timer / 20;
+                        ChatFormatting color = secondsLeft <= 3 ? ChatFormatting.RED : ChatFormatting.GREEN;
 
-                    // 检查主手或副手是否持有 Vanish 道具
-                    if (mainHandItem.getItem() instanceof Vanish) {
-                        vanishStack = mainHandItem;
-                    } else if (offHandItem.getItem() instanceof Vanish) {
-                        vanishStack = offHandItem;
+                        player.displayClientMessage(
+                                Component.literal("👻隐身剩余: ")
+                                        .append(Component.literal(secondsLeft + "s").withStyle(color, ChatFormatting.BOLD)),
+                                true // true 表示显示在 Action Bar (物品栏上方) 而不是聊天框
+                        );
                     }
 
-                    // 情况 1: 玩家没有手持隐身道具 -> 强制解除隐身
-                    if (vanishStack == null) {
-                        disableInvisibility(player, cap, "❌ 手持物品切换，隐身失效！");
-                        return;
+                } else {
+                    // 时间到，解除隐身
+                    cap.setInvisible(false);
+
+                    // 同步给所有人
+                    if (player instanceof ServerPlayer sp) {
+                        PacketHandler.INSTANCE.send(
+                                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> sp),
+                                new S2CSyncGameData(sp.getId(), cap)
+                        );
                     }
 
-                    // 情况 2: 玩家手持道具 -> 扣除耐久
-                    // (不再持续播放烟雾)
-
-                    // 扣除 1点耐久
-                    // hurt方法参数：(伤害值, 随机源, 玩家)
-                    boolean broken = vanishStack.hurt(1, player.getRandom(), player);
-
-                    // 确保物品 NBT 状态是 active (为了让它发光)
-                    if (!vanishStack.getOrCreateTag().getBoolean("isActive")) {
-                        vanishStack.getOrCreateTag().putBoolean("isActive", true);
-                    }
-
-                    if (broken) {
-                        // 物品碎了 -> 销毁物品并解除隐身
-                        vanishStack.shrink(1);
-                        player.playSound(net.minecraft.sounds.SoundEvents.ITEM_BREAK, 1.0f, 1.0f);
-                        disableInvisibility(player, cap, "能量耗尽，隐身结束！");
-                    }
+                    // 显形提示
+                    player.displayClientMessage(Component.literal("隐身失效！").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), true);
                 }
-            });
-        }
-    }
+            }
+        });
 
-    /**
-     * 辅助方法：统一处理关闭隐身
-     */
-    private static void disableInvisibility(ServerPlayer player, com.mohuia.block_hide_seek.data.IGameData cap, String message) {
-        // 1. 修改数据
-        cap.setInvisible(false);
-
-        // 2. 发送消息
-        player.displayClientMessage(Component.literal(message).withStyle(ChatFormatting.RED), true);
-
-        // 3. 同步数据包
-        PacketHandler.INSTANCE.send(
-                PacketDistributor.TRACKING_ENTITY_AND_SELF.with(() -> player),
-                new S2CSyncGameData(player.getId(), cap)
-        );
-
-        // 4. 确保手上的物品不再发光 (如果有的话)
-        ItemStack stack = player.getMainHandItem();
-        if (stack.getItem() instanceof Vanish) {
-            stack.getOrCreateTag().putBoolean("isActive", false);
-        }
     }
 }

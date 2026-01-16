@@ -30,9 +30,8 @@ public class GameLoopManager {
     private static boolean isGameRunning = false;
     private static int ticksRemaining = 0;
 
-    // 新增：躲藏阶段倒计时
+    // 躲藏阶段倒计时
     private static int hidingPhaseTicks = 0;
-    private static final int DEFAULT_HIDING_TIME_SECONDS = 30;
 
     public static boolean isGameRunning() { return isGameRunning; }
     public static int getTicksRemaining() { return ticksRemaining; }
@@ -67,9 +66,8 @@ public class GameLoopManager {
         cleanupDecoys(level);
 
         isGameRunning = true;
-        ticksRemaining = config.gameDurationSeconds * 20;
-        // 设置躲藏时间 (30秒)
-        hidingPhaseTicks = DEFAULT_HIDING_TIME_SECONDS * 20;
+        int safeHidingTime = Math.max(config.hidingTimeSeconds, 5);
+        hidingPhaseTicks = safeHidingTime * 20;
 
         // 重置所有玩家
         for (ServerPlayer p : level.players()) GameRoleManager.resetPlayer(p);
@@ -101,7 +99,7 @@ public class GameLoopManager {
         }
 
         MinecraftForge.EVENT_BUS.post(new GameStartEvent(level));
-        GameNetworkHelper.broadcast(level, Component.literal("⏳ 躲藏阶段！躲藏者有 " + DEFAULT_HIDING_TIME_SECONDS + " 秒时间躲藏！").withStyle(ChatFormatting.YELLOW));
+        GameNetworkHelper.broadcast(level, Component.literal("⏳ 躲藏阶段！躲藏者有 " + safeHidingTime + " 秒时间躲藏！").withStyle(ChatFormatting.YELLOW));
         GameNetworkHelper.updateHud(level, true, ticksRemaining);
     }
 

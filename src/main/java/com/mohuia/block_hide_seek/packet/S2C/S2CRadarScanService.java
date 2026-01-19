@@ -5,14 +5,17 @@ import com.mohuia.block_hide_seek.network.PacketHandler;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.mohuia.block_hide_seek.item.Radar.SEARCH_RANGE;
+
 public final class S2CRadarScanService {
 
-    private static final double SCAN_RADIUS = 30.0;
 
     private S2CRadarScanService() {}
 
@@ -36,7 +39,7 @@ public final class S2CRadarScanService {
             double dx = p.getX() - ox;
             double dz = p.getZ() - oz;
             double r = Math.sqrt(dx*dx + dz*dz);
-            if (r > SCAN_RADIUS) continue;
+            if (r > SEARCH_RANGE) continue;
 
             // 阵营检查
             p.getCapability(GameDataProvider.CAP).ifPresent(cap -> {
@@ -51,9 +54,17 @@ public final class S2CRadarScanService {
                         .append(p.getDisplayName())
                         .append(" | 身份: ")
                         .append(roleText));
-
                 // 核心逻辑：只有不是抓捕者才加入列表
                 if (!isSeeker) {
+                    // ✅ 给目标玩家失明 0 级，持续 5 秒（5 * 20 tick）
+                    p.addEffect(new MobEffectInstance(
+                            MobEffects.BLINDNESS,
+                            5 * 20,   // 持续时间（tick）
+                            0,        // 等级 0
+                            false,    // 是否环境效果
+                            false,    // 是否显示粒子
+                            true      // 是否显示图标
+                    ));
                     targets.add(new S2CRadarScanSync.Target(
                             p.getUUID(), p.getX(), p.getY(), p.getZ()
                     ));

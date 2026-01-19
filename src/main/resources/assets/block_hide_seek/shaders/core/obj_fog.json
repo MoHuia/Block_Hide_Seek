@@ -1,0 +1,24 @@
+{
+  "vertex": "block_hide_seek:obj_fog",
+  "fragment": "block_hide_seek:obj_fog",
+  "samplers": [
+    { "name": "NoiseSampler" }
+  ],
+  "uniforms": [
+    { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1] },
+    { "name": "ProjMat",      "type": "matrix4x4", "count": 16, "values": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1] },
+
+    { "name": "GameTime",     "type": "float", "count": 1, "values": [0.0] },
+    { "name": "FogStrength",  "type": "float", "count": 1, "values": [1.0] },
+    { "name": "NoiseScale",   "type": "float", "count": 1, "values": [2.0] },
+    { "name": "NoiseSpeed",   "type": "float", "count": 1, "values": [0.25] }
+  ],
+  "attributes": [
+    "Position",
+    "Color",
+    "UV0",
+    "UV1",
+    "UV2",
+    "Normal"
+  ]
+}
